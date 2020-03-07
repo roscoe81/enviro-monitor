@@ -26,4 +26,5 @@ This project is licensed under the MIT License - see the LICENSE.md file for det
 
 ## Acknowledgements
 Relative Humidity Temperature adjustment using August-Roche_Magnus approximation using https://bmcnoldy.rsmas.miami.edu/Humidity.html
+
 Weather Forecast based on www.worldstormcentral.co/law_of_storms/secret_law_of_storms.html by R. J. Ellis
