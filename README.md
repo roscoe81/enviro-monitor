@@ -13,7 +13,7 @@ The accuracy of the temperature and humidity measurements has been improved by u
 
 Likewise, testing and regression analysis was used to provide temperature, humidity and air pressure compensation for the Enviro+ gas sensors. Algorithms and clean-air calibration is included to provide gas sensor readings in ppm. A data logging function is provided to support the regression analysis.
 
-## (Note: Even though the accuracy has been improved, the readings are still not thoroughly and accurately calibrated and should not be relied upon for critical purposes or applications.)
+## Note: Even though the accuracy has been improved, the readings are still not thoroughly and accurately calibrated and should not be relied upon for critical purposes or applications.
 
 mqtt support is provided to use external temperature and humidity sensors (for data logging and regression analysis), interworking between the monitor and a home automation system and to support interworking between outdoor and indoor sensors. That latter interworking allows the displays to cycle between indoor and outdoor readings.
 
