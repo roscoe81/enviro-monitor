@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 3.42 - Gen
+#Northcliff Environment Monitor - 3.43 - Gen
 # Requires Home Manager >=8.43 with new mqtt message topics for indoor and outdoor and new parsed_json labels
 
 import paho.mqtt.client as mqtt
@@ -967,7 +967,7 @@ oxi_bar_comp_factor = 2639
 nh3_temp_comp_factor = -16000
 nh3_hum_comp_factor = 0
 nh3_bar_comp_factor = 1526
-gas_temp_baseline = 25
+gas_temp_baseline = 23
 gas_hum_baseline = 50
 gas_bar_baseline = 1013
 
