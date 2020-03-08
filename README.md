@@ -9,7 +9,7 @@ The [Combined]( https://github.com/pimoroni/enviroplus-python/blob/master/exampl
 
 The [All in One]( https://github.com/pimoroni/enviroplus-python/blob/master/examples/all-in-one.py) function has been modified to allow cycling through the monitor’s functions.
 
-The accuracy of the temperature and humidity measurements has been improved by undertaking extensive testing and regression analysis to develop more effective compensation algorithms. However on their own, even these improved algorithms were not sufficient and it was necessary to use a 3D-printed case to separate the Enviro+ from the Raspberry Pi Zero W and connect them together via a ribbon cable. 
+The accuracy of the temperature and humidity measurements has been improved by undertaking extensive testing and regression analysis to develop more effective compensation algorithms. However on their own, even these improved algorithms were not sufficient and it was necessary to use a [3D-printed case](https://github.com/roscoe81/enviro-monitor/tree/master/3DP_Files) to separate the Enviro+ from the Raspberry Pi Zero W and connect them together via a ribbon cable. The case needs to be sheltered from the elements and the [base](https://github.com/roscoe81/enviro-monitor/blob/master/3DP_Files/Northcliff_EM_Base_01.stl) is only required if the unit is not mounted on a vertical surface.
 
 Likewise, testing and regression analysis was used to provide time-based drift, temperature, humidity and air pressure compensation for the Enviro+ gas sensors. Algorithms and clean-air calibration is included to provide gas sensor readings in ppm. A data logging function is provided to support the regression analysis.
 
