@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 3.43 - Gen
+#Northcliff Environment Monitor - 3.47 - Gen
 # Requires Home Manager >=8.43 with new mqtt message topics for indoor and outdoor and new parsed_json labels
 
 import paho.mqtt.client as mqtt
@@ -14,7 +14,8 @@ from datetime import datetime, timedelta
 import numpy
 from fonts.ttf import RobotoMedium as UserFont
 import pytz
-from astral.geocoder import database, lookup
+from pytz import timezone
+from astral.geocoder import database, lookup, add_locations
 from astral.sun import sun
 try:
     from smbus2 import SMBus
@@ -38,25 +39,6 @@ try:
 except ImportError:
     from smbus import SMBus
 import logging
-
-# Config Setup
-enable_send_data_to_homemanager = True
-enable_receive_data_from_homemanager = True
-enable_indoor_outdoor_functionality = True
-mqtt_broker_name = "<Your mqtt broker name here" # Only required if at least one of the previous three flags are True
-enable_luftdaten = True
-enable_climate_and_gas_logging = True
-enable_particle_sensor = True
-incoming_temp_hum_mqtt_topic = 'domoticz/out'
-incoming_temp_hum_mqtt_sensor_name = 'Rear Balcony Climate'
-indoor_outdoor_function = 'Outdoor'
-mqtt_client_name = indoor_outdoor_function + ' Northcliff EM0'
-outdoor_mqtt_topic = 'Outdoor EM0'
-indoor_mqtt_topic = 'Indoor EM0'
-
-# The city and timezone that you want to display.
-city_name = "Sydney"
-time_zone = "Australia/Sydney"
 
 logging.basicConfig(
     format='%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s',
@@ -91,11 +73,46 @@ disp = ST7735.ST7735(
 # Initialize display
 disp.begin()
 
+def retrieve_config():
+    f = open('<Your config.json file location>', 'r')
+    parsed_config_parameters = json.loads(f.read())
+    print('Retrieved Config', parsed_config_parameters)
+    enable_send_data_to_homemanager = parsed_config_parameters['enable_send_data_to_homemanager']
+    enable_receive_data_from_homemanager = parsed_config_parameters['enable_receive_data_from_homemanager']
+    enable_indoor_outdoor_functionality = parsed_config_parameters['enable_indoor_outdoor_functionality']
+    mqtt_broker_name = parsed_config_parameters['mqtt_broker_name']
+    enable_luftdaten = parsed_config_parameters['enable_luftdaten']
+    enable_climate_and_gas_logging = parsed_config_parameters['enable_climate_and_gas_logging']
+    enable_particle_sensor = parsed_config_parameters['enable_particle_sensor']
+    incoming_temp_hum_mqtt_topic = parsed_config_parameters['incoming_temp_hum_mqtt_topic']
+    incoming_temp_hum_mqtt_sensor_name = parsed_config_parameters['incoming_temp_hum_mqtt_sensor_name']
+    indoor_outdoor_function = parsed_config_parameters['indoor_outdoor_function']
+    mqtt_client_name = parsed_config_parameters['mqtt_client_name']
+    outdoor_mqtt_topic = parsed_config_parameters['outdoor_mqtt_topic']
+    indoor_mqtt_topic = parsed_config_parameters['indoor_mqtt_topic']
+    city_name = parsed_config_parameters['city_name']
+    time_zone = parsed_config_parameters['time_zone']
+    custom_locations = parsed_config_parameters['custom_locations']
+    return (enable_send_data_to_homemanager, enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality,
+            mqtt_broker_name, enable_luftdaten, enable_climate_and_gas_logging, enable_particle_sensor,
+            incoming_temp_hum_mqtt_topic, incoming_temp_hum_mqtt_sensor_name, indoor_outdoor_function, mqtt_client_name,
+            outdoor_mqtt_topic, indoor_mqtt_topic, city_name, time_zone, custom_locations)
+
+# Config Setup
+(enable_send_data_to_homemanager, enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality, mqtt_broker_name,
+  enable_luftdaten, enable_climate_and_gas_logging,  enable_particle_sensor, incoming_temp_hum_mqtt_topic,
+  incoming_temp_hum_mqtt_sensor_name, indoor_outdoor_function, mqtt_client_name, outdoor_mqtt_topic, indoor_mqtt_topic,
+  city_name, time_zone, custom_locations) = retrieve_config()
+
+# Add to city database
+db = database()
+add_locations(custom_locations, db)
+
 if enable_particle_sensor:
     # Create a PMS5003 instance
     pms5003 = PMS5003()
     time.sleep(1)
-
+            
 def read_pm_values(luft_values, mqtt_values, own_data, own_disp_values):
     if enable_particle_sensor:
         try:
@@ -269,7 +286,7 @@ def log_climate_and_gas(run_time, cpu_temps, own_data, red_rs, oxi_rs, nh3_rs): 
                          'Raw Humidity': raw_hum, 'Dew Point': dew_point, 'Output Humidity': comp_hum, 'Real Humidity': own_data["Hum"][1], 'Run Time': run_time,
                           "Bar": own_data["Bar"][1], "Oxi": own_data["Oxi"][1], "Red": own_data["Red"][1], "NH3": own_data["NH3"][1], "OxiRS": oxi_rs, "RedRS": red_rs, "NH3RS": nh3_rs}
     print('Logging Climate Data.', climate_log_data)
-    with open ('<Your log file name here>', 'a') as f:
+    with open ('<Your log file location>', 'a') as f:
         f.write(',\n' + json.dumps(climate_log_data))
     return cpu_temps
 
@@ -460,7 +477,7 @@ def display_forecast(valid_barometer_history, forecast, barometer_available_time
     text_colour = (255, 255, 255)
     back_colour = (0, 0, 0)
     if valid_barometer_history:
-        message = "Barometer {:.1f} hPa\n3Hr Change {:.1f} hPa\n{}".format(barometer, barometer_change, forecast)
+        message = "Barometer {:.0f} hPa\n3Hr Change {:.0f} hPa\n{}".format(round(barometer, 0), round(barometer_change, 0), forecast)
     else:
         minutes_to_forecast = (barometer_available_time - time.time()) / 60
         if minutes_to_forecast >= 2:
@@ -765,15 +782,17 @@ def x_from_sun_moon_time(progress, period, x_range):
     return x
 
 
-def sun_moon_time(dt, city_name, time_zone):
+def sun_moon_time(city_name, time_zone):
     """Calculate the progress through the current sun/moon period (i.e day or
        night) from the last sunrise or sunset, given a datetime object 't'."""
 
-    city = lookup(city_name, database())
+    city = lookup(city_name, db)
 
     # Datetime objects for yesterday, today, tomorrow
-    today = dt.date()
-    dt = pytz.timezone(time_zone).localize(dt)
+    utc = pytz.utc
+    utc_dt = datetime.now(tz=utc)
+    local_dt = utc_dt.astimezone(pytz.timezone(time_zone))
+    today = local_dt.date()
     yesterday = today - timedelta(1)
     tomorrow = today + timedelta(1)
 
@@ -789,29 +808,29 @@ def sun_moon_time(dt, city_name, time_zone):
     sunrise_tomorrow = sun_tomorrow["sunrise"]
 
     # Work out lengths of day or night period and progress through period
-    if sunrise_today < dt < sunset_today:
+    if sunrise_today < local_dt < sunset_today:
         day = True
         period = sunset_today - sunrise_today
         mid = sunrise_today + (period / 2)
-        progress = dt - sunrise_today
+        progress = local_dt - sunrise_today
 
-    elif dt > sunset_today:
+    elif local_dt > sunset_today:
         day = False
         period = sunrise_tomorrow - sunset_today
         mid = sunset_today + (period / 2)
-        progress = dt - sunset_today
+        progress = local_dt - sunset_today
 
     else:
         day = False
         period = sunrise_today - sunset_yesterday
         mid = sunset_yesterday + (period / 2)
-        progress = dt - sunset_yesterday
+        progress = local_dt - sunset_yesterday
 
     # Convert time deltas to seconds
     progress = progress.total_seconds()
     period = period.total_seconds()
 
-    return (progress, period, day)
+    return (progress, period, day, local_dt)
 
 
 def draw_background(progress, period, day):
@@ -873,7 +892,7 @@ def overlay_text(img, position, text, font, align_right=False, rectangle=False):
     return img
 
 def describe_humidity(humidity):
-    """Convert relative humidity into good/bad description."""
+    """Convert relative humidity into wet/good/dry description."""
     if 30 < humidity < 70:
         description = "good"
     elif humidity >= 70:
@@ -884,17 +903,14 @@ def describe_humidity(humidity):
 
 
 def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, maxi_temp, mini_temp, air_quality_data, icon_air_quality_levels):
-    dt = datetime.now()
-#   dt += timedelta(minutes=5)
-    progress, period, day = sun_moon_time(dt, city_name, time_zone)
+    progress, period, day, local_dt = sun_moon_time(city_name, time_zone)
     background = draw_background(progress, period, day)
 
     # Time.
-    date_string = dt.strftime("%d %b %y").lstrip('0')
-    time_string = dt.strftime("%H:%M") + '  ' + location
+    date_string = local_dt.strftime("%d %b %y").lstrip('0')
+    time_string = local_dt.strftime("%H:%M") + '  ' + location
     img = overlay_text(background, (0 + margin, 0 + margin), time_string, font_smm)
     img = overlay_text(img, (WIDTH - margin, 0 + margin), date_string, font_smm, align_right=True)
-
     temp_string = f"{data['Temp'][1]:.0f}°C"
     img = overlay_text(img, (68, 18), temp_string, font_smm, align_right=True)
     spacing = font_smm.getsize(temp_string)[1] + 1
