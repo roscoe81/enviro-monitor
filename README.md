@@ -19,7 +19,7 @@ mqtt support is provided to use external temperature and humidity sensors (for d
 
 [Luftdaten]( https://github.com/pimoroni/enviroplus-python/blob/master/examples/luftdaten.py)  interworking is essentially unchanged, other than the ability to use external temperature and humidity sensors via mqtt messages. 
 
-The same [Enviro+ setup]( https://github.com/pimoroni/enviroplus-python/blob/master/README.md) is used and the Config Setup parameters in the code can be further used to customise its functionality.
+The same [Enviro+ setup]( https://github.com/pimoroni/enviroplus-python/blob/master/README.md) is used and the config.json file parameters are used to customise its functionality.
 
 ## License
 This project is licensed under the MIT License - see the LICENSE.md file for details
