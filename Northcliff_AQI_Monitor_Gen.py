@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 3.47 - Gen
+#Northcliff Environment Monitor - 3.50 Gen
 # Requires Home Manager >=8.43 with new mqtt message topics for indoor and outdoor and new parsed_json labels
 
 import paho.mqtt.client as mqtt
@@ -148,7 +148,7 @@ def read_pm_values(luft_values, mqtt_values, own_data, own_disp_values):
     return(luft_values, mqtt_values, own_data, own_disp_values)
 
 # Read gas and climate values from Home Manager and /or BME280 
-def read_climate_gas_values(cpu_temps, luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values):
+def read_climate_gas_values(cpu_temps, luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values, gas_r0_calibration_after_warmup_completed):
     current_time = time.time()
     use_internal_temp_hum = True
     if enable_receive_data_from_homemanager:
@@ -196,7 +196,7 @@ def read_climate_gas_values(cpu_temps, luft_values, mqtt_values, own_data, maxi_
     own_disp_values["Bar"] = own_disp_values["Bar"][1:] + [[own_data["Bar"][1], 1]]
     mqtt_values["Bar"] = own_data["Bar"][1]
     luft_values["pressure"] = "{:.2f}".format(own_data["Bar"][1] * 100)
-    red_in_ppm, oxi_in_ppm, nh3_in_ppm, red_rs, oxi_rs, nh3_rs = read_gas_in_ppm(raw_temp, raw_hum, own_data["Bar"][1])
+    red_in_ppm, oxi_in_ppm, nh3_in_ppm, red_rs, oxi_rs, nh3_rs = read_gas_in_ppm(raw_temp, raw_hum, own_data["Bar"][1], gas_r0_calibration_after_warmup_completed)
     own_data["Red"][1] = round(red_in_ppm, 2)
     own_disp_values["Red"] = own_disp_values["Red"][1:] + [[own_data["Red"][1], 1]]
     mqtt_values["Red"] = own_data["Red"][1]
@@ -215,28 +215,52 @@ def read_climate_gas_values(cpu_temps, luft_values, mqtt_values, own_data, maxi_
     mqtt_values["Lux"] = own_data["Lux"][1]
     return cpu_temps, luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values, red_rs, oxi_rs, nh3_rs
     
-def read_gas_in_ppm(raw_temp, raw_hum, barometer):
+def read_raw_gas():
     gas_data = gas.read_all()
-    red_rs, oxi_rs, nh3_rs = comp_gas(gas_data, raw_temp, raw_hum, barometer)
-    #red_rs = gas_data.reducing
-    #oxi_rs = gas_data.oxidising
-    #nh3_rs = gas_data.nh3
+    raw_red_rs = round(gas_data.reducing, 0)
+    raw_oxi_rs = round(gas_data.oxidising, 0)
+    raw_nh3_rs = round(gas_data.nh3, 0)
+    return raw_red_rs, raw_oxi_rs, raw_nh3_rs
+    
+def read_gas_in_ppm(raw_temp, raw_hum, barometer, gas_r0_calibration_after_warmup_completed):
+    if gas_r0_calibration_after_warmup_completed:
+        red_rs, oxi_rs, nh3_rs = comp_gas(raw_temp, raw_hum, barometer)
+        print("Reading Gas sensors after warmup completed")
+    else:
+        red_rs, oxi_rs, nh3_rs = read_raw_gas()
+        print("Reading Gas sensors before warmup completed")
     print("Red Rs:", round(red_rs, 0), "Oxi Rs:", round(oxi_rs, 0), "NH3 Rs:", round(nh3_rs, 0))
-    red_in_ppm = math.pow(10, -1.25 * math.log10(red_rs/red_r0) + 0.64)
-    oxi_in_ppm = math.pow(10, math.log10(oxi_rs/oxi_r0) - 0.8129)
-    nh3_in_ppm = math.pow(10, -1.8 * math.log10(nh3_rs/nh3_r0) - 0.163)
+    if red_rs/red_r0 >= 0:
+        red_ratio = red_rs/red_r0
+    else:
+        red_ratio = 0
+    if oxi_rs/oxi_r0 >= 0:
+        oxi_ratio = oxi_rs/oxi_r0
+    else:
+        oxi_ratio = 0
+    if nh3_rs/nh3_r0 >= 0:
+        nh3_ratio = nh3_rs/nh3_r0
+    else:
+        nh3_ratio = 0
+    red_in_ppm = math.pow(10, -1.25 * math.log10(red_ratio) + 0.64)
+    oxi_in_ppm = math.pow(10, math.log10(oxi_ratio) - 0.8129)
+    nh3_in_ppm = math.pow(10, -1.8 * math.log10(nh3_ratio) - 0.163)
     return red_in_ppm, oxi_in_ppm, nh3_in_ppm, red_rs, oxi_rs, nh3_rs
 
-def calibrate_gas():
-    #print("R0 Calibration. Old R0.  Red R0:", red_r0, "Oxi R0:", oxi_r0, "NH3 R0:", nh3_r0)
-    raw_temp = bme280.get_temperature()
-    raw_hum = bme280.get_humidity()
-    barometer = bme280.get_pressure() + bar_comp_factor
-    calibration_gas_reading = gas.read_all()
-    red_r0, oxi_r0, nh3_r0 = comp_gas(calibration_gas_reading, raw_temp, raw_hum, barometer)
+def calibrate_gas(raw_or_comp):
+    if raw_or_comp == 'Comp':
+        raw_temp = bme280.get_temperature()
+        raw_hum = bme280.get_humidity()
+        barometer = bme280.get_pressure() + bar_comp_factor
+        red_r0, oxi_r0, nh3_r0 = comp_gas(raw_temp, raw_hum, barometer)
+        print('New R0s with compensation. Red R0:', red_r0, 'Oxi R0:', oxi_r0, 'NH3 R0:', nh3_r0)
+    else:
+        red_r0, oxi_r0, nh3_r0 = read_raw_gas()
+        print('New R0s without compensation. Red R0:', red_r0, 'Oxi R0:', oxi_r0, 'NH3 R0:', nh3_r0)
     return red_r0, oxi_r0, nh3_r0
 
-def comp_gas(gas_data, raw_temp, raw_hum, barometer):
+def comp_gas(raw_temp, raw_hum, barometer):
+    gas_data = gas.read_all()
     gas_temp_diff = raw_temp - gas_temp_baseline
     gas_hum_diff = raw_hum - gas_hum_baseline
     gas_bar_diff = barometer - gas_bar_baseline
@@ -1114,25 +1138,25 @@ if enable_send_data_to_homemanager or enable_receive_data_from_homemanager or en
     client.connect(mqtt_broker_name, 1883, 60)
     client.loop_start()
 
-# Take one reading from each climate sensor on start up to stabilise readings
+# Take one reading from each climate and gas sensor on start up to stabilise readings
 first_pressure_reading = bme280.get_pressure() + bar_comp_factor
 first_temperature_reading = bme280.get_temperature()
 first_humidity_reading = bme280.get_humidity()
 first_light_reading = ltr559.get_lux()
 first_proximity_reading = ltr559.get_proximity()
-first_gas_reading = gas.read_all()
-red_rs, oxi_rs, nh3_rs = comp_gas(first_gas_reading, first_temperature_reading, first_humidity_reading, first_pressure_reading)
+red_rs, oxi_rs, nh3_rs = read_raw_gas()
 
-red_r0, oxi_r0, nh3_r0 = calibrate_gas() # Set up startup R0
-print('Startup gas sensor R0s are. Red R0:', red_r0, 'Oxi R0:', oxi_r0, 'NH3 R0:', nh3_r0)
+# Set up startup R0 with no compensation (Compensation will be set up after start-up)
+red_r0, oxi_r0, nh3_r0 = calibrate_gas('Raw') 
+
 # Set up lists to permit gas sensor drift compensation
 reds_r0 = [red_r0] * 7
 oxis_r0 = [oxi_r0] * 7
 nh3s_r0 = [nh3_r0] * 7
-r0_calibration_after_warmup_completed = False
+gas_r0_calibration_after_warmup_completed = False
 gas_sensors_warmup_time = 6000
-daily_r0_calibration_completed = False
-daily_r0_calibration_hour = 3 # Adjust this to set the hour at which daily gas sensor calibrations are undertaken
+gas_daily_r0_calibration_completed = False
+gas_daily_r0_calibration_hour = 3 # Adjust this to set the hour at which daily gas sensor calibrations are undertaken
 
 # Set up weather forecast
 first_climate_reading_done = False
@@ -1156,7 +1180,7 @@ try:
         luft_values, mqtt_values, own_data, own_disp_values = read_pm_values(luft_values, mqtt_values, own_data, own_disp_values)
         if time_since_update > 145:
             update_icon_display = True
-            cpu_temps, luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values, red_rs, oxi_rs, nh3_rs = read_climate_gas_values(cpu_temps, luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values)
+            cpu_temps, luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values, red_rs, oxi_rs, nh3_rs = read_climate_gas_values(cpu_temps, luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values, gas_r0_calibration_after_warmup_completed)
             first_climate_reading_done = True
             print('Luftdaten Values', luft_values)
             print('mqtt Values', mqtt_values)
@@ -1191,29 +1215,27 @@ try:
                                                                                          forecast, barometer_available_time, barometer_change, barometer_trend,
                                                                                          icon_forecast, maxi_temp, mini_temp, update_icon_display)
         time.sleep(1)
-        if ((time.time() - start_time) > gas_sensors_warmup_time) and r0_calibration_after_warmup_completed == False: # Calibrate gas sensors after warmup
-            print('Gas Sensor Calibration after Warmup. Pre calibration R0s were. Red R0:', red_r0, 'Oxi R0:', oxi_r0, 'NH3 R0:', nh3_r0)
-            red_r0, oxi_r0, nh3_r0 = calibrate_gas()
-            print('Post calibration R0s are Red R0:', red_r0, 'Oxi R0:', oxi_r0, 'NH3 R0:', nh3_r0)
+        if ((time.time() - start_time) > gas_sensors_warmup_time) and gas_r0_calibration_after_warmup_completed == False: # Calibrate gas sensors after warmup
+            print("Gas Sensor Calibration after Warmup with old R0s. Red R0:", red_r0, "Oxi R0:", oxi_r0, "NH3 R0:", nh3_r0)
+            red_r0, oxi_r0, nh3_r0 = calibrate_gas('Comp')
             reds_r0 = [red_r0] * 7
             oxis_r0 = [oxi_r0] * 7
             nh3s_r0 = [nh3_r0] * 7
-            r0_calibration_after_warmup_completed = True
+            gas_r0_calibration_after_warmup_completed = True
         # Calibrate gas sensors daily, using average of daily readings over a week
         today=datetime.now()
-        if int(today.strftime('%H')) == daily_r0_calibration_hour and daily_r0_calibration_completed == False:
-            print('Daily Gas Sensor Calibration. Pre calibration R0s were. Red R0:', red_r0, 'Oxi R0:', oxi_r0, 'NH3 R0:', nh3_r0)
-            spot_red_r0, spot_oxi_r0, spot_nh3_r0 = calibrate_gas()
+        if int(today.strftime('%H')) == gas_daily_r0_calibration_hour and gas_daily_r0_calibration_completed == False:
+            print("Daily Gas Sensor Calibration with old R0s. Red R0:", red_r0, "Oxi R0:", oxi_r0, "NH3 R0:", nh3_r0)
+            spot_red_r0, spot_oxi_r0, spot_nh3_r0 = calibrate_gas('Comp')
             reds_r0 = reds_r0[1:] + [spot_red_r0]
             red_r0 = round(sum(reds_r0)/float(len(reds_r0)), 0)
             oxis_r0 = oxis_r0[1:] + [spot_oxi_r0]
             oxi_r0 = round(sum(oxis_r0)/float(len(oxis_r0)), 0)
             nh3s_r0 = nh3s_r0[1:] + [spot_nh3_r0]
             nh3_r0 = round(sum(nh3s_r0)/float(len(nh3s_r0)), 0)
-            print('Post calibration R0s are Red R0:', red_r0, 'Oxi R0:', oxi_r0, 'NH3 R0:', nh3_r0)
-            daily_r0_calibration_completed = True
-        if int(today.strftime('%H')) == (daily_r0_calibration_hour + 1) and daily_r0_calibration_completed:
-            daily_r0_calibration_completed = False       
+            gas_daily_r0_calibration_completed = True
+        if int(today.strftime('%H')) == (gas_daily_r0_calibration_hour + 1) and gas_daily_r0_calibration_completed:
+            gas_daily_r0_calibration_completed = False       
             
 except KeyboardInterrupt:
     if enable_send_data_to_homemanager or enable_receive_data_from_homemanager:
