@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 3.50 Gen
+#Northcliff Environment Monitor - 3.52 Gen
 # Requires Home Manager >=8.43 with new mqtt message topics for indoor and outdoor and new parsed_json labels
 
 import paho.mqtt.client as mqtt
@@ -230,18 +230,18 @@ def read_gas_in_ppm(raw_temp, raw_hum, barometer, gas_r0_calibration_after_warmu
         red_rs, oxi_rs, nh3_rs = read_raw_gas()
         print("Reading Gas sensors before warmup completed")
     print("Red Rs:", round(red_rs, 0), "Oxi Rs:", round(oxi_rs, 0), "NH3 Rs:", round(nh3_rs, 0))
-    if red_rs/red_r0 >= 0:
+    if red_rs/red_r0 > 0:
         red_ratio = red_rs/red_r0
     else:
-        red_ratio = 0
-    if oxi_rs/oxi_r0 >= 0:
+        red_ratio = 1
+    if oxi_rs/oxi_r0 > 0:
         oxi_ratio = oxi_rs/oxi_r0
     else:
-        oxi_ratio = 0
-    if nh3_rs/nh3_r0 >= 0:
+        oxi_ratio = 1
+    if nh3_rs/nh3_r0 > 0:
         nh3_ratio = nh3_rs/nh3_r0
     else:
-        nh3_ratio = 0
+        nh3_ratio = 1
     red_in_ppm = math.pow(10, -1.25 * math.log10(red_ratio) + 0.64)
     oxi_in_ppm = math.pow(10, math.log10(oxi_ratio) - 0.8129)
     nh3_in_ppm = math.pow(10, -1.8 * math.log10(nh3_ratio) - 0.163)
