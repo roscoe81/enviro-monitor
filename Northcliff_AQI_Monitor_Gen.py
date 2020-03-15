@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 3.52 Gen
+#Northcliff Environment Monitor - 3.53 Gen
 # Requires Home Manager >=8.43 with new mqtt message topics for indoor and outdoor and new parsed_json labels
 
 import paho.mqtt.client as mqtt
@@ -1184,10 +1184,9 @@ try:
             first_climate_reading_done = True
             print('Luftdaten Values', luft_values)
             print('mqtt Values', mqtt_values)
-            if (indoor_outdoor_function == 'Indoor' and enable_send_data_to_homemanager) or (indoor_outdoor_function == 'Outdoor' and enable_send_data_to_homemanager
-                                                                                     and enable_indoor_outdoor_functionality == False):
+            if (indoor_outdoor_function == 'Indoor' and enable_send_data_to_homemanager):
                 client.publish(indoor_mqtt_topic, json.dumps(mqtt_values))
-            elif indoor_outdoor_function == 'Outdoor' and enable_indoor_outdoor_functionality:
+            elif (indoor_outdoor_function == 'Outdoor' and (enable_indoor_outdoor_functionality or enable_send_data_to_homemanager)):
                 client.publish(outdoor_mqtt_topic, json.dumps(mqtt_values))
             else:
                 pass
