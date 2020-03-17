@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 3.53 Gen
+#Northcliff Environment Monitor - 3.54 Gen
 # Requires Home Manager >=8.43 with new mqtt message topics for indoor and outdoor and new parsed_json labels
 
 import paho.mqtt.client as mqtt
@@ -729,7 +729,7 @@ def analyse_barometer(barometer_change, barometer):
             forecast = 'Fair Weather'
             icon_forecast = 'Fair'
         elif barometer_change>-1.1 and barometer_change<=0:
-            forecast = 'Fair Weather with\nNo Marked Temp Change'
+            forecast = 'Fair Weather with\nLittle Temp Change'
             icon_forecast = 'Fair'
         elif barometer_change>=1.1 and barometer_change<6:
             forecast = 'Poorer Weather'
