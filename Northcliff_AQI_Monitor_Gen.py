@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 3.54 Gen
+#Northcliff Environment Monitor - 3.55 Gen
 # Requires Home Manager >=8.43 with new mqtt message topics for indoor and outdoor and new parsed_json labels
 
 import paho.mqtt.client as mqtt
@@ -31,7 +31,6 @@ except ImportError:
 from enviroplus import gas
 from bme280 import BME280
 from pms5003 import PMS5003, ReadTimeoutError, ChecksumMismatchError
-#from subprocess import PIPE, Popen, check_output
 from subprocess import check_output
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 try:
@@ -206,6 +205,7 @@ def read_climate_gas_values(cpu_temps, luft_values, mqtt_values, own_data, maxi_
     own_data["NH3"][1] = round(nh3_in_ppm, 2)
     own_disp_values["NH3"] = own_disp_values["NH3"][1:] + [[own_data["NH3"][1], 1]]
     mqtt_values["NH3"] = own_data["NH3"][1]
+    mqtt_values["Gas Calibrated"] = gas_r0_calibration_after_warmup_completed
     proximity = ltr559.get_proximity()
     if proximity < 500:
         own_data["Lux"][1] = round(ltr559.get_lux(), 1)
@@ -1154,6 +1154,7 @@ reds_r0 = [red_r0] * 7
 oxis_r0 = [oxi_r0] * 7
 nh3s_r0 = [nh3_r0] * 7
 gas_r0_calibration_after_warmup_completed = False
+mqtt_values["Gas Calibrated"] = False # Only set to true after the gas sesnor warmup time has been completed
 gas_sensors_warmup_time = 6000
 gas_daily_r0_calibration_completed = False
 gas_daily_r0_calibration_hour = 3 # Adjust this to set the hour at which daily gas sensor calibrations are undertaken
