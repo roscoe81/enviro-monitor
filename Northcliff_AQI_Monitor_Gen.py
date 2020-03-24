@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 3.55 Gen
+#Northcliff Environment Monitor - 3.63 - Gen Allow logging with internal temp/hum/barometer, include Raw Barometer in log, linear Temp/Hum comp and gas comp using calibration temp/hum/bar baseline
 # Requires Home Manager >=8.43 with new mqtt message topics for indoor and outdoor and new parsed_json labels
 
 import paho.mqtt.client as mqtt
@@ -85,6 +85,8 @@ def retrieve_config():
     enable_particle_sensor = parsed_config_parameters['enable_particle_sensor']
     incoming_temp_hum_mqtt_topic = parsed_config_parameters['incoming_temp_hum_mqtt_topic']
     incoming_temp_hum_mqtt_sensor_name = parsed_config_parameters['incoming_temp_hum_mqtt_sensor_name']
+    incoming_barometer_mqtt_topic = parsed_config_parameters['incoming_barometer_mqtt_topic']
+    incoming_barometer_sensor_id = parsed_config_parameters['incoming_barometer_sensor_id']
     indoor_outdoor_function = parsed_config_parameters['indoor_outdoor_function']
     mqtt_client_name = parsed_config_parameters['mqtt_client_name']
     outdoor_mqtt_topic = parsed_config_parameters['outdoor_mqtt_topic']
@@ -94,13 +96,14 @@ def retrieve_config():
     custom_locations = parsed_config_parameters['custom_locations']
     return (enable_send_data_to_homemanager, enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality,
             mqtt_broker_name, enable_luftdaten, enable_climate_and_gas_logging, enable_particle_sensor,
-            incoming_temp_hum_mqtt_topic, incoming_temp_hum_mqtt_sensor_name, indoor_outdoor_function, mqtt_client_name,
-            outdoor_mqtt_topic, indoor_mqtt_topic, city_name, time_zone, custom_locations)
+            incoming_temp_hum_mqtt_topic, incoming_temp_hum_mqtt_sensor_name, incoming_barometer_mqtt_topic, incoming_barometer_sensor_id,
+            indoor_outdoor_function, mqtt_client_name, outdoor_mqtt_topic, indoor_mqtt_topic, city_name, time_zone, custom_locations)
 
 # Config Setup
 (enable_send_data_to_homemanager, enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality, mqtt_broker_name,
   enable_luftdaten, enable_climate_and_gas_logging,  enable_particle_sensor, incoming_temp_hum_mqtt_topic,
-  incoming_temp_hum_mqtt_sensor_name, indoor_outdoor_function, mqtt_client_name, outdoor_mqtt_topic, indoor_mqtt_topic,
+  incoming_temp_hum_mqtt_sensor_name, incoming_barometer_mqtt_topic, incoming_barometer_sensor_id,
+  indoor_outdoor_function, mqtt_client_name, outdoor_mqtt_topic, indoor_mqtt_topic,
   city_name, time_zone, custom_locations) = retrieve_config()
 
 # Add to city database
@@ -147,27 +150,26 @@ def read_pm_values(luft_values, mqtt_values, own_data, own_disp_values):
     return(luft_values, mqtt_values, own_data, own_disp_values)
 
 # Read gas and climate values from Home Manager and /or BME280 
-def read_climate_gas_values(cpu_temps, luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values, gas_r0_calibration_after_warmup_completed):
+def read_climate_gas_values(luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values, gas_r0_calibration_after_warmup_completed, gas_calib_temp, gas_calib_hum, gas_calib_bar):
+    raw_temp, comp_temp = adjusted_temperature()
+    raw_hum, comp_hum = adjusted_humidity()
     current_time = time.time()
-    use_internal_temp_hum = True
+    use_external_temp_hum = False
+    use_external_barometer = False
     if enable_receive_data_from_homemanager:
-        use_internal_temp_hum = not(es.check_valid_readings(current_time)) # Don't use internal temp/hum if there's a valid external reading
-    if use_internal_temp_hum:
+        use_external_temp_hum, use_external_barometer = es.check_valid_readings(current_time)
+    if use_external_temp_hum == False:
         print("Internal Temp/Hum Sensor")
-        raw_temp, comp_temp, cpu_temps, avg_cpu_temp = adjusted_temperature(cpu_temps)
         luft_values["temperature"] = "{:.2f}".format(comp_temp)
         own_data["Temp"][1] = round(comp_temp, 1)
-        comp_hum, raw_hum, dew_point = adjusted_humidity(raw_temp, comp_temp)
         luft_values["humidity"] = "{:.2f}".format(comp_hum)
         own_data["Hum"][1] = round(comp_hum, 1)
-    else: # Use external temp/hum sensor but still capture raw temp and raw hum for gas compensation
-        print("External Temp/Humidity Sensor")
+    else: # Use external temp/hum sensor but still capture raw temp and raw hum for gas compensation and logging
+        print("External Temp/Hum Sensor")
         luft_values["temperature"] = es.temperature
         own_data["Temp"][1] = float(luft_values["temperature"])
         luft_values["humidity"] = es.humidity
         own_data["Hum"][1] = float(luft_values["humidity"])
-        raw_temp = bme280.get_temperature()
-        raw_hum = bme280.get_humidity()
     own_disp_values["Temp"] = own_disp_values["Temp"][1:] + [[own_data["Temp"][1], 1]]
     mqtt_values["Temp"] = own_data["Temp"][1]
     own_disp_values["Hum"] = own_disp_values["Hum"][1:] + [[own_data["Hum"][1], 1]]
@@ -191,11 +193,20 @@ def read_climate_gas_values(cpu_temps, luft_values, mqtt_values, own_data, maxi_
             pass
     mqtt_values["Min Temp"] = mini_temp
     mqtt_values["Max Temp"] = maxi_temp
-    own_data["Bar"][1] = round((bme280.get_pressure() + bar_comp_factor), 1)# Used for storing and displaying all readings
-    own_disp_values["Bar"] = own_disp_values["Bar"][1:] + [[own_data["Bar"][1], 1]]
-    mqtt_values["Bar"] = own_data["Bar"][1]
-    luft_values["pressure"] = "{:.2f}".format(own_data["Bar"][1] * 100)
-    red_in_ppm, oxi_in_ppm, nh3_in_ppm, red_rs, oxi_rs, nh3_rs = read_gas_in_ppm(raw_temp, raw_hum, own_data["Bar"][1], gas_r0_calibration_after_warmup_completed)
+    raw_barometer = bme280.get_pressure()
+    if use_external_barometer == False:
+        print("Internal Barometer")
+        own_data["Bar"][1] = round((raw_barometer + bar_comp_factor), 1)
+        own_disp_values["Bar"] = own_disp_values["Bar"][1:] + [[own_data["Bar"][1], 1]]
+        mqtt_values["Bar"] = own_data["Bar"][1]
+        luft_values["pressure"] = "{:.2f}".format((raw_barometer + bar_comp_factor) * 100)
+    else:
+        print("External Barometer")
+        own_data["Bar"][1] = round(float(es.barometer), 1)
+        own_disp_values["Bar"] = own_disp_values["Bar"][1:] + [[own_data["Bar"][1], 1]]
+        mqtt_values["Bar"] = own_data["Bar"][1]
+        luft_values["pressure"] = "{:.2f}".format(float(es.barometer) * 100)
+    red_in_ppm, oxi_in_ppm, nh3_in_ppm, red_rs, oxi_rs, nh3_rs = read_gas_in_ppm(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer, gas_r0_calibration_after_warmup_completed)
     own_data["Red"][1] = round(red_in_ppm, 2)
     own_disp_values["Red"] = own_disp_values["Red"][1:] + [[own_data["Red"][1], 1]]
     mqtt_values["Red"] = own_data["Red"][1]
@@ -213,7 +224,7 @@ def read_climate_gas_values(cpu_temps, luft_values, mqtt_values, own_data, maxi_
         own_data["Lux"][1] = 1
     own_disp_values["Lux"] = own_disp_values["Lux"][1:] + [[own_data["Lux"][1], 1]]
     mqtt_values["Lux"] = own_data["Lux"][1]
-    return cpu_temps, luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values, red_rs, oxi_rs, nh3_rs
+    return luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values, red_rs, oxi_rs, nh3_rs, raw_temp, comp_temp, comp_hum, raw_hum, use_external_temp_hum, use_external_barometer, raw_barometer
     
 def read_raw_gas():
     gas_data = gas.read_all()
@@ -222,9 +233,9 @@ def read_raw_gas():
     raw_nh3_rs = round(gas_data.nh3, 0)
     return raw_red_rs, raw_oxi_rs, raw_nh3_rs
     
-def read_gas_in_ppm(raw_temp, raw_hum, barometer, gas_r0_calibration_after_warmup_completed):
+def read_gas_in_ppm(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer, gas_r0_calibration_after_warmup_completed):
     if gas_r0_calibration_after_warmup_completed:
-        red_rs, oxi_rs, nh3_rs = comp_gas(raw_temp, raw_hum, barometer)
+        red_rs, oxi_rs, nh3_rs = comp_gas(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer)
         print("Reading Gas sensors after warmup completed")
     else:
         red_rs, oxi_rs, nh3_rs = read_raw_gas()
@@ -247,23 +258,16 @@ def read_gas_in_ppm(raw_temp, raw_hum, barometer, gas_r0_calibration_after_warmu
     nh3_in_ppm = math.pow(10, -1.8 * math.log10(nh3_ratio) - 0.163)
     return red_in_ppm, oxi_in_ppm, nh3_in_ppm, red_rs, oxi_rs, nh3_rs
 
-def calibrate_gas(raw_or_comp):
-    if raw_or_comp == 'Comp':
-        raw_temp = bme280.get_temperature()
-        raw_hum = bme280.get_humidity()
-        barometer = bme280.get_pressure() + bar_comp_factor
-        red_r0, oxi_r0, nh3_r0 = comp_gas(raw_temp, raw_hum, barometer)
-        print('New R0s with compensation. Red R0:', red_r0, 'Oxi R0:', oxi_r0, 'NH3 R0:', nh3_r0)
-    else:
-        red_r0, oxi_r0, nh3_r0 = read_raw_gas()
-        print('New R0s without compensation. Red R0:', red_r0, 'Oxi R0:', oxi_r0, 'NH3 R0:', nh3_r0)
+def calibrate_gas(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer):
+    red_r0, oxi_r0, nh3_r0 = comp_gas(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer)
+    print('New R0s with compensation. Red R0:', red_r0, 'Oxi R0:', oxi_r0, 'NH3 R0:', nh3_r0)
     return red_r0, oxi_r0, nh3_r0
 
-def comp_gas(raw_temp, raw_hum, barometer):
+def comp_gas(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer):
     gas_data = gas.read_all()
-    gas_temp_diff = raw_temp - gas_temp_baseline
-    gas_hum_diff = raw_hum - gas_hum_baseline
-    gas_bar_diff = barometer - gas_bar_baseline
+    gas_temp_diff = raw_temp - gas_calib_temp
+    gas_hum_diff = raw_hum - gas_calib_hum
+    gas_bar_diff = raw_barometer - gas_calib_bar
     raw_red_rs = round(gas_data.reducing, 0)
     comp_red_rs = round(raw_red_rs - (red_temp_comp_factor * gas_temp_diff + red_hum_comp_factor * gas_hum_diff + red_bar_comp_factor * gas_bar_diff), 0)
     raw_oxi_rs = round(gas_data.oxidising, 0)
@@ -275,54 +279,47 @@ def comp_gas(raw_temp, raw_hum, barometer):
     return comp_red_rs, comp_oxi_rs, comp_nh3_rs
     
     
-def adjusted_temperature(cpu_temps):
-    cpu_temp = get_cpu_temperature()        
-    # Smooth out with some averaging to decrease jitter
-    cpu_temps = cpu_temps[1:] + [cpu_temp]
-    avg_cpu_temp = sum(cpu_temps) / float(len(cpu_temps))
+def adjusted_temperature():
     raw_temp = bme280.get_temperature()
-    cpu_temp_factor = cpu_temp_factor_slope * (avg_cpu_temp - raw_temp) + cpu_temp_factor_intercept
-    raw_temp_without_cpu_impact = raw_temp - cpu_temp_factor
-    comp_temp = comp_temp_slope * raw_temp_without_cpu_impact + comp_temp_intercept
-    return raw_temp, comp_temp, cpu_temps, avg_cpu_temp
+    comp_temp = comp_temp_slope * raw_temp + comp_temp_intercept
+    return raw_temp, comp_temp
 
-def adjusted_humidity(raw_temp, comp_temp):
+def adjusted_humidity():
     raw_hum = bme280.get_humidity()
-    dew_point = (243.04 * (math.log(raw_hum / 100) + ((17.625 * raw_temp) / (243.04 + raw_temp)))) / (17.625 - math.log(raw_hum / 100) - (17.625 * raw_temp / (243.04 + raw_temp)))
-    temp_adjusted_hum = 100 * (math.exp((17.625 * dew_point)/(243.04 + dew_point)) / math.exp((17.625 * comp_temp) / (243.04 + comp_temp)))
-    comp_hum = comp_hum_slope * temp_adjusted_hum + comp_hum_intercept
-    return min(100, comp_hum), raw_hum, dew_point
+    comp_hum = comp_hum_slope * raw_hum + comp_hum_intercept
+    return raw_hum, min(100, comp_hum)
     
-def log_climate_and_gas(run_time, cpu_temps, own_data, red_rs, oxi_rs, nh3_rs): # Used to log climate and gas data to create compensation algorithms
-    raw_temp, comp_temp, cpu_temps, avg_cpu_temp = adjusted_temperature(cpu_temps)
-    comp_hum, raw_hum, dew_point = adjusted_humidity(raw_temp, comp_temp)
-    #print('CPU Temps:', cpu_temps, 'Raw Temp:', raw_temp, 'Raw Hum:', raw_hum)
-    avg_cpu_temp = round(avg_cpu_temp, 2)
+def log_climate_and_gas(run_time, own_data, red_rs, oxi_rs, nh3_rs, raw_temp, comp_temp, comp_hum, raw_hum, use_external_temp_hum, use_external_barometer, raw_barometer): # Used to log climate and gas data to create compensation algorithms
     raw_temp = round(raw_temp, 2)
     raw_hum = round(raw_hum, 2)
     comp_temp = round(comp_temp, 2)
     comp_hum = round(comp_hum, 2)
-    dew_point = round(dew_point, 2)
+    raw_barometer = round(raw_barometer, 1)
     red_rs = round(red_rs, 0)
     oxi_rs = round(oxi_rs, 0)
     nh3_rs = round(nh3_rs, 0)
-    climate_log_data = {'CPU Temperature': avg_cpu_temp, 'Raw Temperature': raw_temp, 'Output Temp': comp_temp, 'Real Temperature': own_data["Temp"][1],
-                         'Raw Humidity': raw_hum, 'Dew Point': dew_point, 'Output Humidity': comp_hum, 'Real Humidity': own_data["Hum"][1], 'Run Time': run_time,
-                          "Bar": own_data["Bar"][1], "Oxi": own_data["Oxi"][1], "Red": own_data["Red"][1], "NH3": own_data["NH3"][1], "OxiRS": oxi_rs, "RedRS": red_rs, "NH3RS": nh3_rs}
-    print('Logging Climate Data.', climate_log_data)
+    if use_external_temp_hum and use_external_barometer:
+        environment_log_data = {'Run Time': run_time, 'Raw Temperature': raw_temp, 'Output Temp': comp_temp,
+                             'Real Temperature': own_data["Temp"][1], 'Raw Humidity': raw_hum,
+                             'Output Humidity': comp_hum, 'Real Humidity': own_data["Hum"][1], 'Output Bar': own_data["Bar"][1], 'Raw Bar': raw_barometer,
+                             'Oxi': own_data["Oxi"][1], 'Red': own_data["Red"][1], 'NH3': own_data["NH3"][1], 'OxiRS': oxi_rs, 'RedRS': red_rs, 'NH3RS': nh3_rs}
+    elif use_external_temp_hum and not(use_external_barometer):
+        environment_log_data = {'Run Time': run_time, 'Raw Temperature': raw_temp, 'Output Temp': comp_temp,
+                             'Real Temperature': own_data["Temp"][1], 'Raw Humidity': raw_hum,
+                             'Output Humidity': comp_hum, 'Real Humidity': own_data["Hum"][1], 'Output Bar': own_data["Bar"][1],
+                             'Oxi': own_data["Oxi"][1], 'Red': own_data["Red"][1], 'NH3': own_data["NH3"][1], 'OxiRS': oxi_rs, 'RedRS': red_rs, 'NH3RS': nh3_rs}     
+    elif not(use_external_temp_hum) and use_external_barometer:
+        environment_log_data = {'Run Time': run_time, 'Raw Temperature': raw_temp, 'Output Temp': comp_temp,
+                             'Raw Humidity': raw_hum, 'Output Humidity': comp_hum, 'Output Bar': own_data["Bar"][1], 'Raw Bar': raw_barometer,
+                             'Oxi': own_data["Oxi"][1], 'Red': own_data["Red"][1], 'NH3': own_data["NH3"][1], 'OxiRS': oxi_rs, 'RedRS': red_rs, 'NH3RS': nh3_rs}
+    else:
+        environment_log_data = {'Run Time': run_time, 'Raw Temperature': raw_temp, 'Output Temp': comp_temp,
+                             'Raw Humidity': raw_hum, 'Output Humidity': comp_hum, 'Output Bar': own_data["Bar"][1],
+                             'Oxi': own_data["Oxi"][1], 'Red': own_data["Red"][1], 'NH3': own_data["NH3"][1], 'OxiRS': oxi_rs, 'RedRS': red_rs, 'NH3RS': nh3_rs}
+    print('Logging Environment Data.', environment_log_data)
     with open ('<Your log file location>', 'a') as f:
-        f.write(',\n' + json.dumps(climate_log_data))
-    return cpu_temps
+        f.write(',\n' + json.dumps(environment_log_data))
 
-# Get CPU temperature to use for compensation
-def get_cpu_temperature():
-    #process = Popen(['vcgencmd', 'measure_temp'], stdout=PIPE, universal_newlines=True)
-    #output, _error = process.communicate()
-    #return float(output[output.index('=') + 1:output.rindex("'")])
-    with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
-        temp = f.read()
-        temp = int(temp) / 1000.0
-    return temp
 
 # Get Raspberry Pi serial number to use as ID
 def get_serial_number():
@@ -435,17 +432,21 @@ def send_to_luftdaten(luft_values, id, enable_particle_sensor):
 def on_connect(client, userdata, flags, rc):
     es.print_update('Northcliff Environment Monitor Connected with result code ' + str(rc))
     if enable_receive_data_from_homemanager:
-        client.subscribe(incoming_temp_hum_mqtt_topic) # Subscribe to the topic with the external temp/hum data
+        client.subscribe(incoming_temp_hum_mqtt_topic) # Subscribe to the topic for the external temp/hum data
+        client.subscribe(incoming_barometer_mqtt_topic) # Subscribe to the topic for the external barometer data
     if enable_indoor_outdoor_functionality and indoor_outdoor_function == 'Indoor':
         client.subscribe(outdoor_mqtt_topic)
 
 def on_message(client, userdata, msg):
     decoded_payload = str(msg.payload.decode("utf-8"))
     parsed_json = json.loads(decoded_payload)
-    if msg.topic == incoming_temp_hum_mqtt_topic and parsed_json['name'] == incoming_temp_hum_mqtt_sensor_name: # Identify temp/hum sensor
+    if msg.topic == incoming_temp_hum_mqtt_topic and parsed_json['name'] == incoming_temp_hum_mqtt_sensor_name: # Identify external temp/hum sensor
         es.capture_temp_humidity(parsed_json)
+    if msg.topic == incoming_barometer_mqtt_topic and parsed_json['idx'] == incoming_barometer_sensor_id: # Identify external barometer
+        es.capture_barometer(parsed_json['svalue'])
     if enable_indoor_outdoor_functionality and indoor_outdoor_function == 'Indoor' and msg.topic == outdoor_mqtt_topic:
         capture_outdoor_data(parsed_json)
+        
     
 def capture_outdoor_data(parsed_json):
     global outdoor_reading_captured
@@ -592,7 +593,7 @@ def display_results(start_current_display, current_display_is_own, display_modes
     else:
         pass
     return last_page, mode, start_current_display, current_display_is_own, update_icon_display
- 
+
 class ExternalSensors(object): # Handles the external temp/hum sesnors
     def __init__(self):
         self.barometer_update_time = 0
@@ -612,15 +613,15 @@ class ExternalSensors(object): # Handles the external temp/hum sesnors
         self.temp_humidity_update_time = time.time()
         
     def check_valid_readings(self, check_time):
-        #if check_time - self.barometer_update_time < 500:
-            #valid_barometer_reading = True
-        #else:
-            #valid_barometer_reading = False
+        if check_time - self.barometer_update_time < 500:
+            valid_barometer_reading = True
+        else:
+            valid_barometer_reading = False
         if check_time - self.temp_humidity_update_time < 500:
             valid_temp_humidity_reading = True
         else:
             valid_temp_humidity_reading = False
-        return valid_temp_humidity_reading
+        return valid_temp_humidity_reading, valid_barometer_reading
 
     def print_update(self, message):
         today = datetime.now()
@@ -989,24 +990,21 @@ def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, max
     disp.display(img)
 
 # Compensation factors for temperature, humidity and air pressure
-cpu_temp_factor_slope = -0.0646 # Linear Regression to minimise impact of CPU temp on Raw Temp
-cpu_temp_factor_intercept = 18.7811
-comp_temp_slope = 0.8135 # Linear Regression to adjust Raw Temp (with impact of CPU Temp removed) to provide compensated temp
-comp_temp_intercept = 13.9981
-comp_hum_slope = 0.9425 # Linear Regression to adjust temperature-adjusted raw relative humidity to provide compensated relative humidity
-comp_hum_intercept = 9.295
-
-bar_comp_factor = 2.4
-# Gas Comp Factors: Change in Rs per degree C, percent humidity or Bar of pressure relative to baselines
-red_temp_comp_factor = -9000
-red_hum_comp_factor = -1750
-red_bar_comp_factor = 0
-oxi_temp_comp_factor = -10000
-oxi_hum_comp_factor = -646
-oxi_bar_comp_factor = 2639
-nh3_temp_comp_factor = -16000
-nh3_hum_comp_factor = 0
-nh3_bar_comp_factor = 1526
+comp_temp_slope = 0.9093 # Linear Regression to adjust Raw Temp to provide compensated temp
+comp_temp_intercept = -3.2561
+comp_hum_slope = 1.334 # Linear Regression to adjust raw relative humidity to provide compensated relative humidity
+comp_hum_intercept = 9.7933
+bar_comp_factor = 2
+# Gas Comp Factors: Change in Rs per degree C, percent humidity or Hpa of pressure relative to baselines
+red_temp_comp_factor = 632
+red_hum_comp_factor = 118
+red_bar_comp_factor = -431
+oxi_temp_comp_factor = 6660
+oxi_hum_comp_factor = -2041
+oxi_bar_comp_factor = -3031
+nh3_temp_comp_factor = 9580
+nh3_hum_comp_factor = -3784
+nh3_bar_comp_factor = -3287
 gas_temp_baseline = 23
 gas_hum_baseline = 50
 gas_bar_baseline = 1013
@@ -1119,8 +1117,6 @@ mqtt_values = {} # To be sent to Home Manager or outdoor to indoor unit communic
 maxi_temp = None
 mini_temp = None
 
-# Set up CPU Temps list
-cpu_temps = [get_cpu_temperature()] * 5
 
 # Raspberry Pi ID to send to Luftdaten
 id = "raspi-" + get_serial_number()
@@ -1142,17 +1138,19 @@ if enable_send_data_to_homemanager or enable_receive_data_from_homemanager or en
 first_pressure_reading = bme280.get_pressure() + bar_comp_factor
 first_temperature_reading = bme280.get_temperature()
 first_humidity_reading = bme280.get_humidity()
+use_external_temp_hum = False
+use_external_barometer = False
 first_light_reading = ltr559.get_lux()
 first_proximity_reading = ltr559.get_proximity()
 red_rs, oxi_rs, nh3_rs = read_raw_gas()
 
-# Set up startup R0 with no compensation (Compensation will be set up after start-up)
-red_r0, oxi_r0, nh3_r0 = calibrate_gas('Raw') 
-
-# Set up lists to permit gas sensor drift compensation
-reds_r0 = [red_r0] * 7
-oxis_r0 = [oxi_r0] * 7
-nh3s_r0 = [nh3_r0] * 7
+# Set up startup R0 with no compensation (Compensation will be set up after warm up time)
+red_r0, oxi_r0, nh3_r0 = read_raw_gas()
+print("Startup R0. Red R0:", round(red_r0, 0), "Oxi R0:", round(oxi_r0, 0), "NH3 R0:", round(nh3_r0, 0))
+# Capture temp/hum/bar to define variables
+gas_calib_temp = first_temperature_reading
+gas_calib_hum = first_humidity_reading
+gas_calib_bar = first_pressure_reading - bar_comp_factor
 gas_r0_calibration_after_warmup_completed = False
 mqtt_values["Gas Calibrated"] = False # Only set to true after the gas sesnor warmup time has been completed
 gas_sensors_warmup_time = 6000
@@ -1181,7 +1179,12 @@ try:
         luft_values, mqtt_values, own_data, own_disp_values = read_pm_values(luft_values, mqtt_values, own_data, own_disp_values)
         if time_since_update > 145:
             update_icon_display = True
-            cpu_temps, luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values, red_rs, oxi_rs, nh3_rs = read_climate_gas_values(cpu_temps, luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values, gas_r0_calibration_after_warmup_completed)
+            (luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values, red_rs, oxi_rs, nh3_rs,
+             raw_temp, comp_temp, comp_hum, raw_hum, use_external_temp_hum,
+             use_external_barometer, raw_barometer) = read_climate_gas_values(luft_values, mqtt_values, own_data,
+                                                                              maxi_temp, mini_temp, own_disp_values,
+                                                                              gas_r0_calibration_after_warmup_completed,
+                                                                              gas_calib_temp, gas_calib_hum, gas_calib_bar)
             first_climate_reading_done = True
             print('Luftdaten Values', luft_values)
             print('mqtt Values', mqtt_values)
@@ -1196,12 +1199,8 @@ try:
                 logging.info("Luftdaten Response: {}\n".format("ok" if resp else "failed"))
             update_time = time.time()
             run_time = round((update_time - start_time), 0)
-            if enable_climate_and_gas_logging and enable_receive_data_from_homemanager: # Log data if activated and if there are external readings available
-                cpu_temps = log_climate_and_gas(run_time, cpu_temps, own_data, red_rs, oxi_rs, nh3_rs)
-            elif enable_climate_and_gas_logging and enable_receive_data_from_homemanager == False: # Warn that logging is not possible if there are no external readings available
-                print("Unable to log climate data. External data not available")
-            else:
-                pass
+            if enable_climate_and_gas_logging:
+                log_climate_and_gas(run_time, own_data, red_rs, oxi_rs, nh3_rs, raw_temp, comp_temp, comp_hum, raw_hum, use_external_temp_hum, use_external_barometer, raw_barometer)
             mqtt_values = {} # Clear mqtt_values after sending to home manager so that forecast data is only sent when updated
         if first_climate_reading_done and (time.time() - barometer_log_time) >= 1200: # Read and update the barometer log if the first climate reading has been done and the last update was >= 20 minutes ago
             if barometer_log_time == 0: # If this is the first barometer log, record the time that a forecast will be available (3 hours)
@@ -1216,23 +1215,45 @@ try:
                                                                                          icon_forecast, maxi_temp, mini_temp, update_icon_display)
         time.sleep(1)
         if ((time.time() - start_time) > gas_sensors_warmup_time) and gas_r0_calibration_after_warmup_completed == False: # Calibrate gas sensors after warmup
-            print("Gas Sensor Calibration after Warmup with old R0s. Red R0:", red_r0, "Oxi R0:", oxi_r0, "NH3 R0:", nh3_r0)
-            red_r0, oxi_r0, nh3_r0 = calibrate_gas('Comp')
+            gas_calib_temp = raw_temp
+            gas_calib_hum = raw_hum
+            gas_calib_bar = raw_barometer
+            red_r0, oxi_r0, nh3_r0 = read_raw_gas()
+            print("Gas Sensor Calibration after Warmup. Red R0:", red_r0, "Oxi R0:", oxi_r0, "NH3 R0:", nh3_r0)
+            print("Gas Calibration Baseline. Temp:", round(gas_calib_temp, 1), "Hum:", round(gas_calib_hum, 0), "Barometer:", round(gas_calib_bar, 1))
             reds_r0 = [red_r0] * 7
             oxis_r0 = [oxi_r0] * 7
             nh3s_r0 = [nh3_r0] * 7
+            gas_calib_temps = [gas_calib_temp] * 7
+            gas_calib_hums = [gas_calib_hum] * 7
+            gas_calib_bars = [gas_calib_bar] * 7
             gas_r0_calibration_after_warmup_completed = True
-        # Calibrate gas sensors daily, using average of daily readings over a week
+        # Calibrate gas sensors daily, using average of daily readings over a week if not already done in the current day and if warmup calibration is completed
+        # Compensates for gas sensor drift over time
         today=datetime.now()
-        if int(today.strftime('%H')) == gas_daily_r0_calibration_hour and gas_daily_r0_calibration_completed == False:
-            print("Daily Gas Sensor Calibration with old R0s. Red R0:", red_r0, "Oxi R0:", oxi_r0, "NH3 R0:", nh3_r0)
-            spot_red_r0, spot_oxi_r0, spot_nh3_r0 = calibrate_gas('Comp')
+        if int(today.strftime('%H')) == gas_daily_r0_calibration_hour and gas_daily_r0_calibration_completed == False and gas_r0_calibration_after_warmup_completed:
+            print("Daily Gas Sensor Calibration. Old R0s. Red R0:", red_r0, "Oxi R0:", oxi_r0, "NH3 R0:", nh3_r0)
+            print("Old Calibration Baseline. Temp:", round(gas_calib_temp, 1), "Hum:", round(gas_calib_hum, 0), "Barometer:", round(gas_calib_bar, 1)) 
+            spot_red_r0, spot_oxi_r0, spot_nh3_r0 = calibrate_gas(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer)
             reds_r0 = reds_r0[1:] + [spot_red_r0]
+            #print("Reds R0", reds_r0)
             red_r0 = round(sum(reds_r0)/float(len(reds_r0)), 0)
             oxis_r0 = oxis_r0[1:] + [spot_oxi_r0]
+            ##print("Oxis R0", oxis_r0)
             oxi_r0 = round(sum(oxis_r0)/float(len(oxis_r0)), 0)
             nh3s_r0 = nh3s_r0[1:] + [spot_nh3_r0]
+            #print("NH3s R0", nh3s_r0)
             nh3_r0 = round(sum(nh3s_r0)/float(len(nh3s_r0)), 0)
+            gas_calib_temps = gas_calib_temps[1:] + [raw_temp]
+            #print("Calib Temps", gas_calib_temps)
+            gas_calib_temp = round(sum(gas_calib_temps)/float(len(gas_calib_temps)), 1)
+            gas_calib_hums = gas_calib_hums[1:] + [raw_hum]
+            #print("Calib Hums", gas_calib_hums)
+            gas_calib_hum = round(sum(gas_calib_hums)/float(len(gas_calib_hums)), 0)
+            gas_calib_bars = gas_calib_bars[1:] + [raw_barometer]
+            #print("Calib Bars", gas_calib_bars)
+            gas_calib_bar = round(sum(gas_calib_bars)/float(len(gas_calib_bars)), 1)
+            print("New Calibration Baseline. Temp:", round(gas_calib_temp, 1), "Hum:", round(gas_calib_hum, 0), "Barometer:", round(gas_calib_bar, 1))
             gas_daily_r0_calibration_completed = True
         if int(today.strftime('%H')) == (gas_daily_r0_calibration_hour + 1) and gas_daily_r0_calibration_completed:
             gas_daily_r0_calibration_completed = False       
@@ -1249,6 +1270,4 @@ except KeyboardInterrupt:
 # https://github.com/pimoroni/enviroplus-python/blob/master/examples/compensated-temperature.py
 # https://github.com/pimoroni/enviroplus-python/blob/master/examples/luftdaten.py
 # https://github.com/pimoroni/enviroplus-python/blob/enviro-non-plus/examples/weather-and-light.py
-# Relative Humidity Temperature adjustment using August-Roche_Magnus approximation using https://bmcnoldy.rsmas.miami.edu/Humidity.html
 # Weather Forecast based on www.worldstormcentral.co/law_of_storms/secret_law_of_storms.html by R. J. Ellis
-

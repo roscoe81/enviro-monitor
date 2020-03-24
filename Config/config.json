@@ -7,6 +7,8 @@
 "enable_particle_sensor": true,
 "incoming_temp_hum_mqtt_topic": "<>",
 "incoming_temp_hum_mqtt_sensor_name": "<>",
+"incoming_barometer_mqtt_topic": "<>",
+"incoming_barometer_sensor_id": 0,
 "indoor_outdoor_function": "Outdoor",
 "mqtt_client_name": "<>",
 "outdoor_mqtt_topic": "<>",
