@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 3.63 - Gen Allow logging with internal temp/hum/barometer, include Raw Barometer in log, linear Temp/Hum comp and gas comp using calibration temp/hum/bar baseline
+#Northcliff Environment Monitor - 3.64 - Gen Daily gas sensor calibration now uses correct compensation tem/hum/bar baseline
 # Requires Home Manager >=8.43 with new mqtt message topics for indoor and outdoor and new parsed_json labels
 
 import paho.mqtt.client as mqtt
@@ -257,11 +257,6 @@ def read_gas_in_ppm(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_
     oxi_in_ppm = math.pow(10, math.log10(oxi_ratio) - 0.8129)
     nh3_in_ppm = math.pow(10, -1.8 * math.log10(nh3_ratio) - 0.163)
     return red_in_ppm, oxi_in_ppm, nh3_in_ppm, red_rs, oxi_rs, nh3_rs
-
-def calibrate_gas(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer):
-    red_r0, oxi_r0, nh3_r0 = comp_gas(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer)
-    print('New R0s with compensation. Red R0:', red_r0, 'Oxi R0:', oxi_r0, 'NH3 R0:', nh3_r0)
-    return red_r0, oxi_r0, nh3_r0
 
 def comp_gas(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer):
     gas_data = gas.read_all()
@@ -1005,9 +1000,6 @@ oxi_bar_comp_factor = -3031
 nh3_temp_comp_factor = 9580
 nh3_hum_comp_factor = -3784
 nh3_bar_comp_factor = -3287
-gas_temp_baseline = 23
-gas_hum_baseline = 50
-gas_bar_baseline = 1013
 
 # Display setup
 delay = 0.5 # Debounce the proximity tap when choosing the data to be displayed
@@ -1152,7 +1144,7 @@ gas_calib_temp = first_temperature_reading
 gas_calib_hum = first_humidity_reading
 gas_calib_bar = first_pressure_reading - bar_comp_factor
 gas_r0_calibration_after_warmup_completed = False
-mqtt_values["Gas Calibrated"] = False # Only set to true after the gas sesnor warmup time has been completed
+mqtt_values["Gas Calibrated"] = False # Only set to true after the gas sensor warmup time has been completed
 gas_sensors_warmup_time = 6000
 gas_daily_r0_calibration_completed = False
 gas_daily_r0_calibration_hour = 3 # Adjust this to set the hour at which daily gas sensor calibrations are undertaken
@@ -1234,16 +1226,7 @@ try:
         if int(today.strftime('%H')) == gas_daily_r0_calibration_hour and gas_daily_r0_calibration_completed == False and gas_r0_calibration_after_warmup_completed:
             print("Daily Gas Sensor Calibration. Old R0s. Red R0:", red_r0, "Oxi R0:", oxi_r0, "NH3 R0:", nh3_r0)
             print("Old Calibration Baseline. Temp:", round(gas_calib_temp, 1), "Hum:", round(gas_calib_hum, 0), "Barometer:", round(gas_calib_bar, 1)) 
-            spot_red_r0, spot_oxi_r0, spot_nh3_r0 = calibrate_gas(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer)
-            reds_r0 = reds_r0[1:] + [spot_red_r0]
-            #print("Reds R0", reds_r0)
-            red_r0 = round(sum(reds_r0)/float(len(reds_r0)), 0)
-            oxis_r0 = oxis_r0[1:] + [spot_oxi_r0]
-            ##print("Oxis R0", oxis_r0)
-            oxi_r0 = round(sum(oxis_r0)/float(len(oxis_r0)), 0)
-            nh3s_r0 = nh3s_r0[1:] + [spot_nh3_r0]
-            #print("NH3s R0", nh3s_r0)
-            nh3_r0 = round(sum(nh3s_r0)/float(len(nh3s_r0)), 0)
+            # Set new calibration baseline using 7 day rolling average
             gas_calib_temps = gas_calib_temps[1:] + [raw_temp]
             #print("Calib Temps", gas_calib_temps)
             gas_calib_temp = round(sum(gas_calib_temps)/float(len(gas_calib_temps)), 1)
@@ -1253,6 +1236,19 @@ try:
             gas_calib_bars = gas_calib_bars[1:] + [raw_barometer]
             #print("Calib Bars", gas_calib_bars)
             gas_calib_bar = round(sum(gas_calib_bars)/float(len(gas_calib_bars)), 1)
+            # Update R0s based on new calibration baseline
+            spot_red_r0, spot_oxi_r0, spot_nh3_r0 = comp_gas(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer)
+            # Convert R0s to 7 day rolling average
+            reds_r0 = reds_r0[1:] + [spot_red_r0]
+            #print("Reds R0", reds_r0)
+            red_r0 = round(sum(reds_r0)/float(len(reds_r0)), 0)
+            oxis_r0 = oxis_r0[1:] + [spot_oxi_r0]
+            ##print("Oxis R0", oxis_r0)
+            oxi_r0 = round(sum(oxis_r0)/float(len(oxis_r0)), 0)
+            nh3s_r0 = nh3s_r0[1:] + [spot_nh3_r0]
+            #print("NH3s R0", nh3s_r0)
+            nh3_r0 = round(sum(nh3s_r0)/float(len(nh3s_r0)), 0)
+            print('New R0s with compensation. Red R0:', red_r0, 'Oxi R0:', oxi_r0, 'NH3 R0:', nh3_r0)
             print("New Calibration Baseline. Temp:", round(gas_calib_temp, 1), "Hum:", round(gas_calib_hum, 0), "Barometer:", round(gas_calib_bar, 1))
             gas_daily_r0_calibration_completed = True
         if int(today.strftime('%H')) == (gas_daily_r0_calibration_hour + 1) and gas_daily_r0_calibration_completed:
