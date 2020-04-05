@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 3.72 - Gen
+#Northcliff Environment Monitor - 3.73 - Gen
 # Requires Home Manager >=8.43 with new mqtt message topics for indoor and outdoor and new parsed_json labels
 
 import paho.mqtt.client as mqtt
@@ -1031,52 +1031,55 @@ def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, max
     disp.display(img)
     
 def update_aio(mqtt_values, aio_format):
-    print("Sending data to Adafruit IO")
+    if mqtt_values['Gas Calibrated']:
+        print("Sending feeds to Adafruit IO with Gas Data")
+    else:
+        print("Sending feeds to Adafruit IO without Gas Data")
     aio_error = False
     for feed in aio_format:
-        aio_feed = aio_format[feed][0]
-        if aio_format[feed][1]:
-            try:
-                aio.send_data(aio_feed.key, mqtt_values[feed][0])
-            except RequestError:
-                print('Adafruit IO Data Update Request Error', feed)
-                aio_error = True
-            except ThrottlingError:
-                print('Adafruit IO Data Update Throttling Error', feed)
-                aio_error = True
-            except AdafruitIOError:
-                print('Adafruit IO Data Update Error', feed)
-                aio_error = True
-            except MaxRetryError:
-                print('Adafruit IO Data Update Max Retry Error', feed)
-                aio_error = True
-            except NewConnectionError:
-                print('Adafruit IO Data Update New Connection Error', feed)
-                aio_error = True
-            except ConnectionError:
-                print('Adafruit IO Data Update Connection Error', feed)
-                aio_error = True
-        else:
-            try:
-                aio.send_data(aio_feed.key, mqtt_values[feed])
-            except RequestError:
-                print('Adafruit IO Data Update Request Error', feed)
-                aio_error = True
-            except ThrottlingError:
-                print('Adafruit IO Data Update Throttling Error', feed)
-                aio_error = True
-            except AdafruitIOError:
-                print('Adafruit IO Data Update Error', feed)
-                aio_error = True
-            except MaxRetryError:
-                print('Adafruit IO Data Update Max Retry Error', feed)
-                aio_error = True
-            except NewConnectionError:
-                print('Adafruit IO Data Update New Connection Error', feed)
-                aio_error = True
-            except ConnectionError:
-                print('Adafruit IO Data Update Connection Error', feed)
-                aio_error = True
+        if mqtt_values['Gas Calibrated'] or aio_format[feed][2] == False: # Only send gas data if the gas sensors are warm and calibrated
+            if aio_format[feed][1]: # Send the first value of the list if sending humidity or barometer data
+                try:
+                    aio.send_data(aio_format[feed][0].key, mqtt_values[feed][0])
+                except RequestError:
+                    print('Adafruit IO Data Update Request Error', feed)
+                    aio_error = True
+                except ThrottlingError:
+                    print('Adafruit IO Data Update Throttling Error', feed)
+                    aio_error = True
+                except AdafruitIOError:
+                    print('Adafruit IO Data Update Error', feed)
+                    aio_error = True
+                except MaxRetryError:
+                    print('Adafruit IO Data Update Max Retry Error', feed)
+                    aio_error = True
+                except NewConnectionError:
+                    print('Adafruit IO Data Update New Connection Error', feed)
+                    aio_error = True
+                except ConnectionError:
+                    print('Adafruit IO Data Update Connection Error', feed)
+                    aio_error = True
+            else: # Send the value if sending data other than humidity or barometer
+                try:
+                    aio.send_data(aio_format[feed][0].key, mqtt_values[feed])
+                except RequestError:
+                    print('Adafruit IO Data Update Request Error', feed)
+                    aio_error = True
+                except ThrottlingError:
+                    print('Adafruit IO Data Update Throttling Error', feed)
+                    aio_error = True
+                except AdafruitIOError:
+                    print('Adafruit IO Data Update Error', feed)
+                    aio_error = True
+                except MaxRetryError:
+                    print('Adafruit IO Data Update Max Retry Error', feed)
+                    aio_error = True
+                except NewConnectionError:
+                    print('Adafruit IO Data Update New Connection Error', feed)
+                    aio_error = True
+                except ConnectionError:
+                    print('Adafruit IO Data Update Connection Error', feed)
+                    aio_error = True
     if aio_error == False:
         print('Data sent to Adafruit IO')
 
@@ -1134,9 +1137,6 @@ font_smm = ImageFont.truetype(UserFont, font_size_smm)
 mediumfont = ImageFont.truetype(UserFont, font_size_medium)
 font_ml = ImageFont.truetype(UserFont, font_size_ml)
 largefont = ImageFont.truetype(UserFont, font_size_large)
-#font = ImageFont.truetype(UserFont, font_size_large)
-#font = ImageFont.truetype("/home/pi/AQI/fonts/Asap/Asap-Bold.ttf", 16)
-#smallfont = ImageFont.truetype("/home/pi/AQI/fonts/Asap/Asap-Bold.ttf", 10)
 message = ""
 
 # Set up icon display
@@ -1201,11 +1201,11 @@ update_icon_display = True
 # code in general leads to ANY DAMAGES or DEATH.
 
 # RGB palette for values on the combined screen
-palette = [(128,128,255),          # Very Low
+palette = [(128,128,255),    # Very Low
            (0,255,255),      # Low
-           (0,255,0),          # Moderate
+           (0,255,0),        # Moderate
            (255,255,0),      # High
-           (255,0,0)]          # Very High
+           (255,0,0)]        # Very High
     
 luft_values = {} # To be sent to Luftdaten
 mqtt_values = {} # To be sent to Home Manager or outdoor to indoor unit communications
@@ -1230,24 +1230,17 @@ if enable_send_data_to_homemanager or enable_receive_data_from_homemanager or en
     client.loop_start()
   
 if enable_adafruit_io:
-    # Set up Adafruit IO
+    # Set up Adafruit IO. aio_format{'measurement':[feed, is value in list format?, is it a gas measurement?]}
     print('Setting up Adafruit IO')
     aio = Client(aio_user_name, aio_key)
     aio_feed_prefix = aio_household_prefix + '-' + aio_location_prefix
     aio_format = {}
     try:
-        aio_temp = aio.feeds(aio_feed_prefix + "-temperature")
-        aio_hum = aio.feeds(aio_feed_prefix + "-humidity")
-        aio_bar = aio.feeds(aio_feed_prefix + "-barometer")
-        aio_lux = aio.feeds(aio_feed_prefix + "-lux")
-        aio_p1 = aio.feeds(aio_feed_prefix + "-pm1")
-        aio_p2_5 = aio.feeds(aio_feed_prefix + "-pm2-dot-5")
-        aio_p10 = aio.feeds(aio_feed_prefix + "-pm10")
-        aio_red = aio.feeds(aio_feed_prefix + "-reducing")
-        aio_oxi = aio.feeds(aio_feed_prefix + "-oxidising")
-        aio_nh3 = aio.feeds(aio_feed_prefix + "-ammonia")
-        aio_format = {'Temp': [aio_temp, False], 'Hum': [aio_hum, True], 'Bar': [aio_bar, True], 'Lux': [aio_lux, False], 'P1': [aio_p1, False],
-                      'P2.5': [aio_p2_5, False], 'P10': [aio_p10, False], 'Red': [aio_red, False], 'Oxi': [aio_oxi, False], 'NH3': [aio_nh3, False]}
+        aio_format = {'Temp': [aio.feeds(aio_feed_prefix + "-temperature"), False, False], 'Hum': [aio.feeds(aio_feed_prefix + "-humidity"), True, False],
+                      'Bar': [aio.feeds(aio_feed_prefix + "-barometer"), True, False], 'Lux': [aio.feeds(aio_feed_prefix + "-lux"), False, False],
+                      'P1': [aio.feeds(aio_feed_prefix + "-pm1"), False, False],'P2.5': [aio.feeds(aio_feed_prefix + "-pm2-dot-5"), False, False],
+                      'P10': [aio.feeds(aio_feed_prefix + "-pm10"), False, False], 'Red': [aio.feeds(aio_feed_prefix + "-reducing"), False, True],
+                      'Oxi': [aio.feeds(aio_feed_prefix + "-oxidising"), False, True], 'NH3': [aio.feeds(aio_feed_prefix + "-ammonia"), False, True]}
         print('Adafruit IO set up completed')
     except RequestError:
         print('Adafruit IO set up Request Error')
