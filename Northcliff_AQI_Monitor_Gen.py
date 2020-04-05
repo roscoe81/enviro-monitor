@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 3.64 - Gen Daily gas sensor calibration now uses correct compensation tem/hum/bar baseline
+#Northcliff Environment Monitor - 3.72 - Gen
 # Requires Home Manager >=8.43 with new mqtt message topics for indoor and outdoor and new parsed_json labels
 
 import paho.mqtt.client as mqtt
+from Adafruit_IO import Client, Feed, Data, RequestError, ThrottlingError
 import colorsys
 import math
 import json
@@ -76,6 +77,12 @@ def retrieve_config():
     f = open('<Your config.json file location>', 'r')
     parsed_config_parameters = json.loads(f.read())
     print('Retrieved Config', parsed_config_parameters)
+    temp_offset = parsed_config_parameters['temp_offset']
+    enable_adafruit_io = parsed_config_parameters['enable_adafruit_io']
+    aio_user_name = parsed_config_parameters['aio_user_name']
+    aio_key = parsed_config_parameters['aio_key']
+    aio_household_prefix = parsed_config_parameters['aio_household_prefix']
+    aio_location_prefix = parsed_config_parameters['aio_location_prefix']
     enable_send_data_to_homemanager = parsed_config_parameters['enable_send_data_to_homemanager']
     enable_receive_data_from_homemanager = parsed_config_parameters['enable_receive_data_from_homemanager']
     enable_indoor_outdoor_functionality = parsed_config_parameters['enable_indoor_outdoor_functionality']
@@ -94,13 +101,15 @@ def retrieve_config():
     city_name = parsed_config_parameters['city_name']
     time_zone = parsed_config_parameters['time_zone']
     custom_locations = parsed_config_parameters['custom_locations']
-    return (enable_send_data_to_homemanager, enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality,
+    return (temp_offset, enable_adafruit_io, aio_user_name, aio_key, aio_household_prefix, aio_location_prefix,
+            enable_send_data_to_homemanager, enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality,
             mqtt_broker_name, enable_luftdaten, enable_climate_and_gas_logging, enable_particle_sensor,
             incoming_temp_hum_mqtt_topic, incoming_temp_hum_mqtt_sensor_name, incoming_barometer_mqtt_topic, incoming_barometer_sensor_id,
             indoor_outdoor_function, mqtt_client_name, outdoor_mqtt_topic, indoor_mqtt_topic, city_name, time_zone, custom_locations)
 
 # Config Setup
-(enable_send_data_to_homemanager, enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality, mqtt_broker_name,
+(temp_offset, enable_adafruit_io, aio_user_name, aio_key, aio_household_prefix, aio_location_prefix,
+  enable_send_data_to_homemanager, enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality, mqtt_broker_name,
   enable_luftdaten, enable_climate_and_gas_logging,  enable_particle_sensor, incoming_temp_hum_mqtt_topic,
   incoming_temp_hum_mqtt_sensor_name, incoming_barometer_mqtt_topic, incoming_barometer_sensor_id,
   indoor_outdoor_function, mqtt_client_name, outdoor_mqtt_topic, indoor_mqtt_topic,
@@ -173,7 +182,8 @@ def read_climate_gas_values(luft_values, mqtt_values, own_data, maxi_temp, mini_
     own_disp_values["Temp"] = own_disp_values["Temp"][1:] + [[own_data["Temp"][1], 1]]
     mqtt_values["Temp"] = own_data["Temp"][1]
     own_disp_values["Hum"] = own_disp_values["Hum"][1:] + [[own_data["Hum"][1], 1]]
-    mqtt_values["Hum"] = own_data["Hum"][1]
+    mqtt_values["Hum"][0] = own_data["Hum"][1]
+    mqtt_values["Hum"][1] = domoticz_hum_map[describe_humidity(own_data["Hum"][1])]
     # Determine max and min temps
     if first_climate_reading_done == False:
         maxi_temp = None
@@ -198,15 +208,15 @@ def read_climate_gas_values(luft_values, mqtt_values, own_data, maxi_temp, mini_
         print("Internal Barometer")
         own_data["Bar"][1] = round((raw_barometer + bar_comp_factor), 1)
         own_disp_values["Bar"] = own_disp_values["Bar"][1:] + [[own_data["Bar"][1], 1]]
-        mqtt_values["Bar"] = own_data["Bar"][1]
+        mqtt_values["Bar"][0] = own_data["Bar"][1]
         luft_values["pressure"] = "{:.2f}".format((raw_barometer + bar_comp_factor) * 100)
     else:
         print("External Barometer")
         own_data["Bar"][1] = round(float(es.barometer), 1)
         own_disp_values["Bar"] = own_disp_values["Bar"][1:] + [[own_data["Bar"][1], 1]]
-        mqtt_values["Bar"] = own_data["Bar"][1]
+        mqtt_values["Bar"][0] = own_data["Bar"][1]
         luft_values["pressure"] = "{:.2f}".format(float(es.barometer) * 100)
-    red_in_ppm, oxi_in_ppm, nh3_in_ppm, red_rs, oxi_rs, nh3_rs = read_gas_in_ppm(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer, gas_r0_calibration_after_warmup_completed)
+    red_in_ppm, oxi_in_ppm, nh3_in_ppm, comp_red_rs, comp_oxi_rs, comp_nh3_rs, raw_red_rs, raw_oxi_rs, raw_nh3_rs = read_gas_in_ppm(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer, gas_r0_calibration_after_warmup_completed)
     own_data["Red"][1] = round(red_in_ppm, 2)
     own_disp_values["Red"] = own_disp_values["Red"][1:] + [[own_data["Red"][1], 1]]
     mqtt_values["Red"] = own_data["Red"][1]
@@ -224,7 +234,7 @@ def read_climate_gas_values(luft_values, mqtt_values, own_data, maxi_temp, mini_
         own_data["Lux"][1] = 1
     own_disp_values["Lux"] = own_disp_values["Lux"][1:] + [[own_data["Lux"][1], 1]]
     mqtt_values["Lux"] = own_data["Lux"][1]
-    return luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values, red_rs, oxi_rs, nh3_rs, raw_temp, comp_temp, comp_hum, raw_hum, use_external_temp_hum, use_external_barometer, raw_barometer
+    return luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values, raw_red_rs, raw_oxi_rs, raw_nh3_rs, raw_temp, comp_temp, comp_hum, raw_hum, use_external_temp_hum, use_external_barometer, raw_barometer
     
 def read_raw_gas():
     gas_data = gas.read_all()
@@ -235,28 +245,31 @@ def read_raw_gas():
     
 def read_gas_in_ppm(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer, gas_r0_calibration_after_warmup_completed):
     if gas_r0_calibration_after_warmup_completed:
-        red_rs, oxi_rs, nh3_rs = comp_gas(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer)
-        print("Reading Gas sensors after warmup completed")
+        comp_red_rs, comp_oxi_rs, comp_nh3_rs, raw_red_rs, raw_oxi_rs, raw_nh3_rs = comp_gas(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer)
+        print("Reading Compensated Gas sensors after warmup completed")
     else:
-        red_rs, oxi_rs, nh3_rs = read_raw_gas()
-        print("Reading Gas sensors before warmup completed")
-    print("Red Rs:", round(red_rs, 0), "Oxi Rs:", round(oxi_rs, 0), "NH3 Rs:", round(nh3_rs, 0))
-    if red_rs/red_r0 > 0:
-        red_ratio = red_rs/red_r0
+        raw_red_rs, raw_oxi_rs, raw_nh3_rs = read_raw_gas()
+        comp_red_rs = raw_red_rs
+        comp_oxi_rs = raw_oxi_rs
+        comp_nh3_rs = raw_nh3_rs
+        print("Reading Raw Gas sensors before warmup completed")
+    print("Red Rs:", round(comp_red_rs, 0), "Oxi Rs:", round(comp_oxi_rs, 0), "NH3 Rs:", round(comp_nh3_rs, 0))
+    if comp_red_rs/red_r0 > 0:
+        red_ratio = comp_red_rs/red_r0
     else:
         red_ratio = 1
-    if oxi_rs/oxi_r0 > 0:
-        oxi_ratio = oxi_rs/oxi_r0
+    if comp_oxi_rs/oxi_r0 > 0:
+        oxi_ratio = comp_oxi_rs/oxi_r0
     else:
         oxi_ratio = 1
-    if nh3_rs/nh3_r0 > 0:
-        nh3_ratio = nh3_rs/nh3_r0
+    if comp_nh3_rs/nh3_r0 > 0:
+        nh3_ratio = comp_nh3_rs/nh3_r0
     else:
         nh3_ratio = 1
     red_in_ppm = math.pow(10, -1.25 * math.log10(red_ratio) + 0.64)
     oxi_in_ppm = math.pow(10, math.log10(oxi_ratio) - 0.8129)
     nh3_in_ppm = math.pow(10, -1.8 * math.log10(nh3_ratio) - 0.163)
-    return red_in_ppm, oxi_in_ppm, nh3_in_ppm, red_rs, oxi_rs, nh3_rs
+    return red_in_ppm, oxi_in_ppm, nh3_in_ppm, comp_red_rs, comp_oxi_rs, comp_nh3_rs, raw_red_rs, raw_oxi_rs, raw_nh3_rs
 
 def comp_gas(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer):
     gas_data = gas.read_all()
@@ -271,48 +284,50 @@ def comp_gas(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, ra
     comp_nh3_rs = round(raw_nh3_rs - (nh3_temp_comp_factor * gas_temp_diff + nh3_hum_comp_factor * gas_hum_diff + nh3_bar_comp_factor * gas_bar_diff), 0)
     print("Gas Compensation. Raw Red Rs:", raw_red_rs, "Comp Red Rs:", comp_red_rs, "Raw Oxi Rs:", raw_oxi_rs, "Comp Oxi Rs:", comp_oxi_rs,
           "Raw NH3 Rs:", raw_nh3_rs, "Comp NH3 Rs:", comp_nh3_rs)
-    return comp_red_rs, comp_oxi_rs, comp_nh3_rs
+    return comp_red_rs, comp_oxi_rs, comp_nh3_rs, raw_red_rs, raw_oxi_rs, raw_nh3_rs
     
     
 def adjusted_temperature():
     raw_temp = bme280.get_temperature()
-    comp_temp = comp_temp_slope * raw_temp + comp_temp_intercept
+    #comp_temp = comp_temp_slope * raw_temp + comp_temp_intercept
+    comp_temp = comp_temp_cub_a * math.pow(raw_temp, 3) + comp_temp_cub_b * math.pow(raw_temp, 2) + comp_temp_cub_c * raw_temp + comp_temp_cub_d
     return raw_temp, comp_temp
 
 def adjusted_humidity():
     raw_hum = bme280.get_humidity()
-    comp_hum = comp_hum_slope * raw_hum + comp_hum_intercept
+    #comp_hum = comp_hum_slope * raw_hum + comp_hum_intercept
+    comp_hum = comp_hum_quad_a * math.pow(raw_hum, 2) + comp_hum_quad_b * raw_hum + comp_hum_quad_c
     return raw_hum, min(100, comp_hum)
     
-def log_climate_and_gas(run_time, own_data, red_rs, oxi_rs, nh3_rs, raw_temp, comp_temp, comp_hum, raw_hum, use_external_temp_hum, use_external_barometer, raw_barometer): # Used to log climate and gas data to create compensation algorithms
+def log_climate_and_gas(run_time, own_data, raw_red_rs, raw_oxi_rs, raw_nh3_rs, raw_temp, comp_temp, comp_hum, raw_hum, use_external_temp_hum, use_external_barometer, raw_barometer): # Used to log climate and gas data to create compensation algorithms
     raw_temp = round(raw_temp, 2)
     raw_hum = round(raw_hum, 2)
     comp_temp = round(comp_temp, 2)
     comp_hum = round(comp_hum, 2)
     raw_barometer = round(raw_barometer, 1)
-    red_rs = round(red_rs, 0)
-    oxi_rs = round(oxi_rs, 0)
-    nh3_rs = round(nh3_rs, 0)
+    raw_red_rs = round(raw_red_rs, 0)
+    raw_oxi_rs = round(raw_oxi_rs, 0)
+    raw_nh3_rs = round(raw_nh3_rs, 0)
     if use_external_temp_hum and use_external_barometer:
         environment_log_data = {'Run Time': run_time, 'Raw Temperature': raw_temp, 'Output Temp': comp_temp,
                              'Real Temperature': own_data["Temp"][1], 'Raw Humidity': raw_hum,
                              'Output Humidity': comp_hum, 'Real Humidity': own_data["Hum"][1], 'Output Bar': own_data["Bar"][1], 'Raw Bar': raw_barometer,
-                             'Oxi': own_data["Oxi"][1], 'Red': own_data["Red"][1], 'NH3': own_data["NH3"][1], 'OxiRS': oxi_rs, 'RedRS': red_rs, 'NH3RS': nh3_rs}
+                             'Oxi': own_data["Oxi"][1], 'Red': own_data["Red"][1], 'NH3': own_data["NH3"][1], 'Raw OxiRS': raw_oxi_rs, 'Raw RedRS': raw_red_rs, 'Raw NH3RS': raw_nh3_rs}
     elif use_external_temp_hum and not(use_external_barometer):
         environment_log_data = {'Run Time': run_time, 'Raw Temperature': raw_temp, 'Output Temp': comp_temp,
                              'Real Temperature': own_data["Temp"][1], 'Raw Humidity': raw_hum,
                              'Output Humidity': comp_hum, 'Real Humidity': own_data["Hum"][1], 'Output Bar': own_data["Bar"][1],
-                             'Oxi': own_data["Oxi"][1], 'Red': own_data["Red"][1], 'NH3': own_data["NH3"][1], 'OxiRS': oxi_rs, 'RedRS': red_rs, 'NH3RS': nh3_rs}     
+                             'Oxi': own_data["Oxi"][1], 'Red': own_data["Red"][1], 'NH3': own_data["NH3"][1], 'Raw OxiRS': raw_oxi_rs, 'Raw RedRS': raw_red_rs, 'Raw NH3RS': raw_nh3_rs}     
     elif not(use_external_temp_hum) and use_external_barometer:
         environment_log_data = {'Run Time': run_time, 'Raw Temperature': raw_temp, 'Output Temp': comp_temp,
                              'Raw Humidity': raw_hum, 'Output Humidity': comp_hum, 'Output Bar': own_data["Bar"][1], 'Raw Bar': raw_barometer,
-                             'Oxi': own_data["Oxi"][1], 'Red': own_data["Red"][1], 'NH3': own_data["NH3"][1], 'OxiRS': oxi_rs, 'RedRS': red_rs, 'NH3RS': nh3_rs}
+                             'Oxi': own_data["Oxi"][1], 'Red': own_data["Red"][1], 'NH3': own_data["NH3"][1], 'Raw OxiRS': raw_oxi_rs, 'Raw RedRS': raw_red_rs, 'Raw NH3RS': raw_nh3_rs}
     else:
         environment_log_data = {'Run Time': run_time, 'Raw Temperature': raw_temp, 'Output Temp': comp_temp,
                              'Raw Humidity': raw_hum, 'Output Humidity': comp_hum, 'Output Bar': own_data["Bar"][1],
-                             'Oxi': own_data["Oxi"][1], 'Red': own_data["Red"][1], 'NH3': own_data["NH3"][1], 'OxiRS': oxi_rs, 'RedRS': red_rs, 'NH3RS': nh3_rs}
+                             'Oxi': own_data["Oxi"][1], 'Red': own_data["Red"][1], 'NH3': own_data["NH3"][1], 'Raw OxiRS': raw_oxi_rs, 'Raw RedRS': raw_red_rs, 'Raw NH3RS': raw_nh3_rs}
     print('Logging Environment Data.', environment_log_data)
-    with open ('<Your log file location>', 'a') as f:
+    with open('<Your log file location>', 'a') as f:
         f.write(',\n' + json.dumps(environment_log_data))
 
 
@@ -361,6 +376,7 @@ def display_status():
     disp.display(img)
 
 def send_to_luftdaten(luft_values, id, enable_particle_sensor):
+    print("Sending Data to Luftdaten")
     if enable_particle_sensor:
         pm_values = dict(i for i in luft_values.items() if i[0].startswith("P"))
     temp_values = dict(i for i in luft_values.items() if not i[0].startswith("P"))
@@ -450,7 +466,10 @@ def capture_outdoor_data(parsed_json):
     global outdoor_mini_temp
     global outdoor_disp_values
     for reading in outdoor_data:
-        outdoor_data[reading][1] = parsed_json[reading]
+        if reading == "Bar" or reading == "Hum": # Barometer and Humidity readings have their data in lists
+            outdoor_data[reading][1] = parsed_json[reading][0]
+        else:
+            outdoor_data[reading][1] = parsed_json[reading]
         outdoor_disp_values[reading] = outdoor_disp_values[reading][1:] + [[outdoor_data[reading][1], 1]]
     outdoor_maxi_temp = parsed_json["Max Temp"]
     outdoor_mini_temp = parsed_json["Min Temp"]
@@ -648,102 +667,129 @@ def log_barometer(barometer, barometer_history): # Logs 3 hours of barometer rea
             barometer_trend = '>!'
         else:
             pass
-        forecast, icon_forecast = analyse_barometer(barometer_change, barometer)
+        forecast, icon_forecast, domoticz_forecast = analyse_barometer(barometer_change, barometer)
     else:
         valid_barometer_history=False
         forecast = 'Insufficient Data'
         icon_forecast = 'Wait'
+        domoticz_forecast = '0'
         barometer_change = 0
         barometer_trend = ''
     #print("Log Barometer")
     #print("Result", barometer_history, "Valid Barometer History is", valid_barometer_history, "3 Hour Barometer Change is", round(barometer_change,2), "millibars")
-    return barometer_history, barometer_change, valid_barometer_history, barometer_log_time, forecast, barometer_trend, icon_forecast
+    return barometer_history, barometer_change, valid_barometer_history, barometer_log_time, forecast, barometer_trend, icon_forecast, domoticz_forecast
 
 def analyse_barometer(barometer_change, barometer):
     if barometer<1009:
         if barometer_change>-1.1 and barometer_change<6:
             forecast = 'Clearing and Colder'
             icon_forecast = 'Fair'
+            domoticz_forecast = '1'
         elif barometer_change>=6 and barometer_change<10:
             forecast = 'Strong Wind Warning'
             icon_forecast = 'Windy'
+            domoticz_forecast = '3'
         elif barometer_change>=10:
             forecast = 'Gale Warning'
             icon_forecast = 'Gale'
+            domoticz_forecast = '4'
         elif barometer_change<=-1.1 and barometer_change>=-4:
             forecast = 'Rain and Wind'
             icon_forecast = 'Rain'
+            domoticz_forecast = '4'
         elif barometer_change<-4 and barometer_change>-10:
             forecast = 'Storm'
             icon_forecast = 'Storm'
+            domoticz_forecast = '4'
         else:
             forecast = 'Storm and Gale'
             icon_forecast = 'Gale'
+            domoticz_forecast = '4'
     elif barometer>=1009 and barometer <=1018:
         if barometer_change>-4 and barometer_change<1.1:
             forecast = 'No Change'
             icon_forecast = 'Stable'
+            domoticz_forecast = '0'
         elif barometer_change>=1.1 and barometer_change<=6 and barometer<=1015:
             forecast = 'No Change'
             icon_forecast = 'Stable'
+            domoticz_forecast = '0'
         elif barometer_change>=1.1 and barometer_change<=6 and barometer>1015:
             forecast = 'Poorer Weather'
             icon_forecast = 'Poorer'
+            domoticz_forecast = '3'
         elif barometer_change>=6 and barometer_change<10:
             forecast = 'Strong Wind Warning'
             icon_forecast = 'Windy'
+            domoticz_forecast = '3'
         elif barometer_change>=10:
             forecast = 'Gale Warning'
             icon_forecast = 'Gale'
+            domoticz_forecast = '4'
         else:
             forecast = 'Rain and Wind'
             icon_forecast = 'Rain'
+            domoticz_forecast = '4'
     elif barometer>1018 and barometer <=1023:
         if barometer_change>0 and barometer_change<1.1:
             forecast = 'No Change'
             icon_forecast = 'Stable'
+            domoticz_forecast = '0'
         elif barometer_change>=1.1 and barometer_change<6:
             forecast = 'Poorer Weather'
             icon_forecast = 'Poorer'
+            domoticz_forecast = '3'
         elif barometer_change>=6 and barometer_change<10:
             forecast = 'Strong Wind Warning'
             icon_forecast = 'Windy'
+            domoticz_forecast = '3'
         elif barometer_change>=10:
             forecast = 'Gale Warning'
             icon_forecast = 'Gale'
+            domoticz_forecast = '4'
         elif barometer_change>-1.1 and barometer_change<=0:
             forecast = 'Fair Weather with\nSlight Temp Change'
             icon_forecast = 'Fair'
+            domoticz_forecast = '1'
         elif barometer_change<=-1.1 and barometer_change>-4:
             forecast = 'No Change but\nRain in 24 Hours'
             icon_forecast = 'Stable'
+            domoticz_forecast = '0'
         else:
             forecast = 'Rain, Wind and\n Higher Temp'
             icon_forecast = 'Rain'
+            domoticz_forecast = '4'
     else: # barometer>1023
         if barometer_change>0 and barometer_change<1.1:
             forecast = 'Fair Weather'
             icon_forecast = 'Fair'
+            domoticz_forecast = '1'
         elif barometer_change>-1.1 and barometer_change<=0:
             forecast = 'Fair Weather with\nLittle Temp Change'
             icon_forecast = 'Fair'
+            domoticz_forecast = '1'
         elif barometer_change>=1.1 and barometer_change<6:
             forecast = 'Poorer Weather'
             icon_forecast = 'Poorer'
+            domoticz_forecast = '3'
         elif barometer_change>=6 and barometer_change<10:
             forecast = 'Strong Wind Warning'
             icon_forecast = 'Windy'
+            domoticz_forecast = '3'
         elif barometer_change>=10:
             forecast = 'Gale Warning'
             icon_forecast = 'Gale'
+            domoticz_forecast = '4'
         elif barometer_change<=-1.1 and barometer_change>-4:
             forecast = 'Fair Weather and\nSlowly Rising Temp'
             icon_forecast = 'Fair'
+            domoticz_forecast = '1'
         else:
             forecast = 'Warming Trend'
             icon_forecast = 'Fair'
+            domoticz_forecast = '1'
     print('3 hour barometer change is '+str(round(barometer_change,1))+' millibars with a current reading of '+str(round(barometer,1))+' millibars. The weather forecast is '+forecast) 
-    return forecast, icon_forecast
+    return forecast, icon_forecast, domoticz_forecast
 
 def calculate_y_pos(x, centre):
     """Calculates the y-coordinate on a parabolic curve, given x."""
@@ -983,23 +1029,80 @@ def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, max
 
     # Display image
     disp.display(img)
+    
+def update_aio(mqtt_values, aio_format):
+    print("Sending data to Adafruit IO")
+    aio_error = False
+    for feed in aio_format:
+        aio_feed = aio_format[feed][0]
+        if aio_format[feed][1]:
+            try:
+                aio.send_data(aio_feed.key, mqtt_values[feed][0])
+            except RequestError:
+                print('Adafruit IO Data Update Request Error', feed)
+                aio_error = True
+            except ThrottlingError:
+                print('Adafruit IO Data Update Throttling Error', feed)
+                aio_error = True
+            except AdafruitIOError:
+                print('Adafruit IO Data Update Error', feed)
+                aio_error = True
+            except MaxRetryError:
+                print('Adafruit IO Data Update Max Retry Error', feed)
+                aio_error = True
+            except NewConnectionError:
+                print('Adafruit IO Data Update New Connection Error', feed)
+                aio_error = True
+            except ConnectionError:
+                print('Adafruit IO Data Update Connection Error', feed)
+                aio_error = True
+        else:
+            try:
+                aio.send_data(aio_feed.key, mqtt_values[feed])
+            except RequestError:
+                print('Adafruit IO Data Update Request Error', feed)
+                aio_error = True
+            except ThrottlingError:
+                print('Adafruit IO Data Update Throttling Error', feed)
+                aio_error = True
+            except AdafruitIOError:
+                print('Adafruit IO Data Update Error', feed)
+                aio_error = True
+            except MaxRetryError:
+                print('Adafruit IO Data Update Max Retry Error', feed)
+                aio_error = True
+            except NewConnectionError:
+                print('Adafruit IO Data Update New Connection Error', feed)
+                aio_error = True
+            except ConnectionError:
+                print('Adafruit IO Data Update Connection Error', feed)
+                aio_error = True
+    if aio_error == False:
+        print('Data sent to Adafruit IO')
 
 # Compensation factors for temperature, humidity and air pressure
-comp_temp_slope = 0.9093 # Linear Regression to adjust Raw Temp to provide compensated temp
-comp_temp_intercept = -3.2561
-comp_hum_slope = 1.334 # Linear Regression to adjust raw relative humidity to provide compensated relative humidity
-comp_hum_intercept = 9.7933
+# Cubic polynomial temp comp coefficients adjusted by config's temp_offset
+comp_temp_cub_a = 0.00012
+comp_temp_cub_b = -0.01408
+comp_temp_cub_c = 1.38546
+comp_temp_cub_d = -8.17903
+comp_temp_cub_d = comp_temp_cub_d + temp_offset
+# Quadratic polynomial hum comp coefficients
+comp_hum_quad_a = -0.0051
+comp_hum_quad_b = 1.8070
+comp_hum_quad_c = -0.2405
+    
 bar_comp_factor = 2
 # Gas Comp Factors: Change in Rs per degree C, percent humidity or Hpa of pressure relative to baselines
-red_temp_comp_factor = 632
-red_hum_comp_factor = 118
-red_bar_comp_factor = -431
-oxi_temp_comp_factor = 6660
-oxi_hum_comp_factor = -2041
-oxi_bar_comp_factor = -3031
-nh3_temp_comp_factor = 9580
-nh3_hum_comp_factor = -3784
-nh3_bar_comp_factor = -3287
+red_temp_comp_factor = -1200
+red_hum_comp_factor = -1200
+red_bar_comp_factor = 1200
+oxi_temp_comp_factor = -2000
+oxi_hum_comp_factor = -1600
+oxi_bar_comp_factor = 2000
+nh3_temp_comp_factor = -2500
+nh3_hum_comp_factor = -1000
+nh3_bar_comp_factor = 1000
 
 # Display setup
 delay = 0.5 # Debounce the proximity tap when choosing the data to be displayed
@@ -1125,7 +1228,30 @@ if enable_send_data_to_homemanager or enable_receive_data_from_homemanager or en
     client.on_message = on_message
     client.connect(mqtt_broker_name, 1883, 60)
     client.loop_start()
-
+  
+if enable_adafruit_io:
+    # Set up Adafruit IO
+    print('Setting up Adafruit IO')
+    aio = Client(aio_user_name, aio_key)
+    aio_feed_prefix = aio_household_prefix + '-' + aio_location_prefix
+    aio_format = {}
+    try:
+        aio_temp = aio.feeds(aio_feed_prefix + "-temperature")
+        aio_hum = aio.feeds(aio_feed_prefix + "-humidity")
+        aio_bar = aio.feeds(aio_feed_prefix + "-barometer")
+        aio_lux = aio.feeds(aio_feed_prefix + "-lux")
+        aio_p1 = aio.feeds(aio_feed_prefix + "-pm1")
+        aio_p2_5 = aio.feeds(aio_feed_prefix + "-pm2-dot-5")
+        aio_p10 = aio.feeds(aio_feed_prefix + "-pm10")
+        aio_red = aio.feeds(aio_feed_prefix + "-reducing")
+        aio_oxi = aio.feeds(aio_feed_prefix + "-oxidising")
+        aio_nh3 = aio.feeds(aio_feed_prefix + "-ammonia")
+        aio_format = {'Temp': [aio_temp, False], 'Hum': [aio_hum, True], 'Bar': [aio_bar, True], 'Lux': [aio_lux, False], 'P1': [aio_p1, False],
+                      'P2.5': [aio_p2_5, False], 'P10': [aio_p10, False], 'Red': [aio_red, False], 'Oxi': [aio_oxi, False], 'NH3': [aio_nh3, False]}
+        print('Adafruit IO set up completed')
+    except RequestError:
+        print('Adafruit IO set up Request Error')
+    
 # Take one reading from each climate and gas sensor on start up to stabilise readings
 first_pressure_reading = bme280.get_pressure() + bar_comp_factor
 first_temperature_reading = bme280.get_temperature()
@@ -1134,7 +1260,7 @@ use_external_temp_hum = False
 use_external_barometer = False
 first_light_reading = ltr559.get_lux()
 first_proximity_reading = ltr559.get_proximity()
-red_rs, oxi_rs, nh3_rs = read_raw_gas()
+raw_red_rs, raw_oxi_rs, raw_nh3_rs = read_raw_gas()
 
 # Set up startup R0 with no compensation (Compensation will be set up after warm up time)
 red_r0, oxi_r0, nh3_r0 = read_raw_gas()
@@ -1158,10 +1284,14 @@ barometer_log_time = 0
 valid_barometer_history = False
 forecast = 'Insufficient Data'
 icon_forecast = 'Wait'
+domoticz_forecast = '0'
 update_time = 0
 start_time = time.time()
 barometer_available_time = start_time + 10945 # Initialise the time until a forecast is available (3 hours + the time taken before the first climate reading)
 mqtt_values["Forecast"] = {"Valid": valid_barometer_history, "3 Hour Change": barometer_change, "Forecast": forecast}
+mqtt_values["Bar"] = [gas_calib_bar, domoticz_forecast]
+domoticz_hum_map = {"good": "1", "dry": "2", "wet": "3"}
+mqtt_values["Hum"] = [gas_calib_hum, domoticz_hum_map["good"]]
 path = os.path.dirname(os.path.realpath(__file__))
 
 # Main loop to read data, display, and send to Luftdaten
@@ -1171,7 +1301,7 @@ try:
         luft_values, mqtt_values, own_data, own_disp_values = read_pm_values(luft_values, mqtt_values, own_data, own_disp_values)
         if time_since_update > 145:
             update_icon_display = True
-            (luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values, red_rs, oxi_rs, nh3_rs,
+            (luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values, raw_red_rs, raw_oxi_rs, raw_nh3_rs,
              raw_temp, comp_temp, comp_hum, raw_hum, use_external_temp_hum,
              use_external_barometer, raw_barometer) = read_climate_gas_values(luft_values, mqtt_values, own_data,
                                                                               maxi_temp, mini_temp, own_disp_values,
@@ -1186,26 +1316,33 @@ try:
                 client.publish(outdoor_mqtt_topic, json.dumps(mqtt_values))
             else:
                 pass
-            if enable_luftdaten:
-                resp = send_to_luftdaten(luft_values, id, enable_particle_sensor)
-                logging.info("Luftdaten Response: {}\n".format("ok" if resp else "failed"))
             update_time = time.time()
             run_time = round((update_time - start_time), 0)
             if enable_climate_and_gas_logging:
-                log_climate_and_gas(run_time, own_data, red_rs, oxi_rs, nh3_rs, raw_temp, comp_temp, comp_hum, raw_hum, use_external_temp_hum, use_external_barometer, raw_barometer)
-            mqtt_values = {} # Clear mqtt_values after sending to home manager so that forecast data is only sent when updated
+                log_climate_and_gas(run_time, own_data, raw_red_rs, raw_oxi_rs, raw_nh3_rs, raw_temp, comp_temp, comp_hum, raw_hum, use_external_temp_hum, use_external_barometer, raw_barometer)
+            if enable_adafruit_io and aio_format != {}: # Send data to Adafruit IO if enabled and set up
+                update_aio(mqtt_values, aio_format)
+            if enable_luftdaten: # Send data to Luftdaten if enabled
+                resp = send_to_luftdaten(luft_values, id, enable_particle_sensor)
+                logging.info("Luftdaten Response: {}\n".format("ok" if resp else "failed"))
+            if "Forecast" in mqtt_values:
+                mqtt_values.pop("Forecast") # Remove Forecast after sending it to home manager so that forecast data is only sent when updated
+            # Write to the watchdog file
+            with open('<Your Watchdog File Name Here>', 'w') as f:
+                f.write('Enviro Script Alive')
         if first_climate_reading_done and (time.time() - barometer_log_time) >= 1200: # Read and update the barometer log if the first climate reading has been done and the last update was >= 20 minutes ago
             if barometer_log_time == 0: # If this is the first barometer log, record the time that a forecast will be available (3 hours)
                 barometer_available_time = time.time() + 10800
-            barometer_history, barometer_change, valid_barometer_history, barometer_log_time, forecast, barometer_trend, icon_forecast = log_barometer(own_data['Bar'][1], barometer_history)
+            barometer_history, barometer_change, valid_barometer_history, barometer_log_time, forecast, barometer_trend, icon_forecast, domoticz_forecast = log_barometer(own_data['Bar'][1], barometer_history)
             mqtt_values["Forecast"] = {"Valid": valid_barometer_history, "3 Hour Change": round(barometer_change, 1), "Forecast": forecast}
+            #mqtt_values["Bar"] = [own_data['Bar'][1], domoticz_forecast] # Add Domoticz Weather Forecast
+            mqtt_values["Bar"][1] = domoticz_forecast # Add Domoticz Weather Forecast
         last_page, mode, start_current_display, current_display_is_own, update_icon_display = display_results(start_current_display, current_display_is_own, display_modes,
                                                                                          indoor_outdoor_display_duration, own_data, data_in_display_all_aq,
                                                                                           outdoor_data, outdoor_reading_captured, own_disp_values,outdoor_disp_values,
                                                                                          delay, last_page, mode, luft_values, mqtt_values, WIDTH, valid_barometer_history,
                                                                                          forecast, barometer_available_time, barometer_change, barometer_trend,
                                                                                          icon_forecast, maxi_temp, mini_temp, update_icon_display)
-        time.sleep(1)
         if ((time.time() - start_time) > gas_sensors_warmup_time) and gas_r0_calibration_after_warmup_completed == False: # Calibrate gas sensors after warmup
             gas_calib_temp = raw_temp
             gas_calib_hum = raw_hum
@@ -1237,7 +1374,7 @@ try:
             #print("Calib Bars", gas_calib_bars)
             gas_calib_bar = round(sum(gas_calib_bars)/float(len(gas_calib_bars)), 1)
             # Update R0s based on new calibration baseline
-            spot_red_r0, spot_oxi_r0, spot_nh3_r0 = comp_gas(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer)
+            spot_red_r0, spot_oxi_r0, spot_nh3_r0, raw_red_r0, raw_oxi_r0, raw_nh3_r0 = comp_gas(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer)
             # Convert R0s to 7 day rolling average
             reds_r0 = reds_r0[1:] + [spot_red_r0]
             #print("Reds R0", reds_r0)
@@ -1252,7 +1389,8 @@ try:
             print("New Calibration Baseline. Temp:", round(gas_calib_temp, 1), "Hum:", round(gas_calib_hum, 0), "Barometer:", round(gas_calib_bar, 1))
             gas_daily_r0_calibration_completed = True
         if int(today.strftime('%H')) == (gas_daily_r0_calibration_hour + 1) and gas_daily_r0_calibration_completed:
-            gas_daily_r0_calibration_completed = False       
+            gas_daily_r0_calibration_completed = False
+        time.sleep(1)
             
 except KeyboardInterrupt:
     if enable_send_data_to_homemanager or enable_receive_data_from_homemanager:
