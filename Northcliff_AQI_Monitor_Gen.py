@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 3.73 - Gen
+#Northcliff Environment Monitor - 3.74 - Gen
 # Requires Home Manager >=8.43 with new mqtt message topics for indoor and outdoor and new parsed_json labels
 
 import paho.mqtt.client as mqtt
@@ -1047,15 +1047,6 @@ def update_aio(mqtt_values, aio_format):
                 except ThrottlingError:
                     print('Adafruit IO Data Update Throttling Error', feed)
                     aio_error = True
-                except AdafruitIOError:
-                    print('Adafruit IO Data Update Error', feed)
-                    aio_error = True
-                except MaxRetryError:
-                    print('Adafruit IO Data Update Max Retry Error', feed)
-                    aio_error = True
-                except NewConnectionError:
-                    print('Adafruit IO Data Update New Connection Error', feed)
-                    aio_error = True
                 except ConnectionError:
                     print('Adafruit IO Data Update Connection Error', feed)
                     aio_error = True
@@ -1067,15 +1058,6 @@ def update_aio(mqtt_values, aio_format):
                     aio_error = True
                 except ThrottlingError:
                     print('Adafruit IO Data Update Throttling Error', feed)
-                    aio_error = True
-                except AdafruitIOError:
-                    print('Adafruit IO Data Update Error', feed)
-                    aio_error = True
-                except MaxRetryError:
-                    print('Adafruit IO Data Update Max Retry Error', feed)
-                    aio_error = True
-                except NewConnectionError:
-                    print('Adafruit IO Data Update New Connection Error', feed)
                     aio_error = True
                 except ConnectionError:
                     print('Adafruit IO Data Update Connection Error', feed)
@@ -1244,6 +1226,10 @@ if enable_adafruit_io:
         print('Adafruit IO set up completed')
     except RequestError:
         print('Adafruit IO set up Request Error')
+    except ThrottlingError:
+        print('Adafruit IO set up Throttling Error')
+    except ConnectionError:
+        print('Adafruit IO set up Connection Error')
     
 # Take one reading from each climate and gas sensor on start up to stabilise readings
 first_pressure_reading = bme280.get_pressure() + bar_comp_factor
