@@ -19,7 +19,7 @@ mqtt support is provided to use external temperature and humidity sensors (for d
 
 [Luftdaten]( https://github.com/pimoroni/enviroplus-python/blob/master/examples/luftdaten.py)  interworking is essentially unchanged, other than the ability to use external temperature and humidity sensors via mqtt messages.
 
-Support is provided for streaming temperature, humidity, air pressure, PM concentration and gas concentration data to Adafruit IO.
+Support is provided for streaming weather forecast, air quality, temperature, humidity, air pressure, PM concentration and gas concentration data to Adafruit IO. A [tool](https://github.com/roscoe81/enviro-monitor/blob/master/Adafruit%20IO%20Feed%20Setup/Northcliff_adafruit_io_feed_setup_Gen.py) is provided to help set up the feeds for this capability.
 
 The same [Enviro+ setup]( https://github.com/pimoroni/enviroplus-python/blob/master/README.md) is used and the config.json file parameters are used to customise its functionality.
 
