@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 3.77 - Gen
+#Northcliff Environment Monitor - 3.79 - Gen 
 # Requires Home Manager >=8.43 with new mqtt message topics for indoor and outdoor and new parsed_json labels
 
 import paho.mqtt.client as mqtt
@@ -465,6 +465,7 @@ def capture_outdoor_data(parsed_json):
     global outdoor_maxi_temp
     global outdoor_mini_temp
     global outdoor_disp_values
+    global outdoor_gas_r0_calibration_after_warmup_completed
     for reading in outdoor_data:
         if reading == "Bar" or reading == "Hum": # Barometer and Humidity readings have their data in lists
             outdoor_data[reading][1] = parsed_json[reading][0]
@@ -473,6 +474,7 @@ def capture_outdoor_data(parsed_json):
         outdoor_disp_values[reading] = outdoor_disp_values[reading][1:] + [[outdoor_data[reading][1], 1]]
     outdoor_maxi_temp = parsed_json["Max Temp"]
     outdoor_mini_temp = parsed_json["Min Temp"]
+    outdoor_gas_r0_calibration_after_warmup_completed = parsed_json["Gas Calibrated"]
     outdoor_reading_captured = True
     
 # Displays data and text on the 0.96" LCD
@@ -561,7 +563,8 @@ def display_all_aq(location, data, data_in_display_all_aq):
 
 def display_results(start_current_display, current_display_is_own, display_modes, indoor_outdoor_display_duration, own_data, data_in_display_all_aq, outdoor_data, outdoor_reading_captured,
                     own_disp_values, outdoor_disp_values, delay, last_page, mode, luft_values, mqtt_values, WIDTH, valid_barometer_history, forecast,
-                    barometer_available_time, barometer_change, barometer_trend, icon_forecast, maxi_temp, mini_temp, update_icon_display):
+                    barometer_available_time, barometer_change, barometer_trend, icon_forecast, maxi_temp, mini_temp, update_icon_display,
+                    gas_r0_calibration_after_warmup_completed, outdoor_gas_r0_calibration_after_warmup_completed):
     proximity = ltr559.get_proximity()
     # If the proximity crosses the threshold, toggle the mode
     if proximity > 1500 and time.time() - last_page > delay:
@@ -594,15 +597,16 @@ def display_results(start_current_display, current_display_is_own, display_modes
         else:
             display_all_aq('OUT', outdoor_data, data_in_display_all_aq)
     elif selected_display_mode == "Icon Weather":
-        #if update_icon_display:
         # Display icon weather/aqi
         if current_display_is_own and indoor_outdoor_function == 'Indoor':
-            display_icon_weather_aqi('IN', own_data, barometer_trend, icon_forecast, maxi_temp, mini_temp, air_quality_data, icon_air_quality_levels)
+            display_icon_weather_aqi('IN', own_data, barometer_trend, icon_forecast, maxi_temp, mini_temp, air_quality_data,
+                                     air_quality_data_no_gas, icon_air_quality_levels, gas_r0_calibration_after_warmup_completed)
         elif current_display_is_own and indoor_outdoor_function == 'Outdoor':
-            display_icon_weather_aqi('OUT', own_data, barometer_trend, icon_forecast, maxi_temp, mini_temp, air_quality_data, icon_air_quality_levels)
+            display_icon_weather_aqi('OUT', own_data, barometer_trend, icon_forecast, maxi_temp, mini_temp, air_quality_data,
+                                     air_quality_data_no_gas, icon_air_quality_levels, gas_r0_calibration_after_warmup_completed)
         else:
-            display_icon_weather_aqi('OUT', outdoor_data, barometer_trend, icon_forecast, outdoor_maxi_temp, outdoor_mini_temp, air_quality_data,
-                                         icon_air_quality_levels)
+            display_icon_weather_aqi('OUT', outdoor_data, barometer_trend, icon_forecast, outdoor_maxi_temp, outdoor_mini_temp,
+                                     air_quality_data, air_quality_data_no_gas, icon_air_quality_levels, outdoor_gas_r0_calibration_after_warmup_completed)
             #update_icon_display = False
     else:
         pass
@@ -995,7 +999,8 @@ def describe_humidity(humidity):
     return description
 
 
-def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, maxi_temp, mini_temp, air_quality_data, icon_air_quality_levels):
+def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, maxi_temp, mini_temp, air_quality_data,
+                             air_quality_data_no_gas, icon_air_quality_levels, gas_sensors_warmed):
     progress, period, day, local_dt = sun_moon_time(city_name, time_zone)
     background = draw_background(progress, period, day)
 
@@ -1027,7 +1032,11 @@ def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, max
                 
     # AQI
     max_aqi = ['All', 0]
-    for aqi_factor in air_quality_data:
+    if gas_sensors_warmed:
+        aqi_data = air_quality_data
+    else:
+        aqi_data = air_quality_data_no_gas
+    for aqi_factor in aqi_data:
         aqi_factor_level = 0
         thresholds = data[aqi_factor][2]
         for level in range(len(thresholds)):
@@ -1116,14 +1125,15 @@ def update_aio(mqtt_values, aio_format, aio_forecast_text_format, aio_forecast_i
     combined_air_quality_level = 0
     combined_air_quality_level_factor = 'All'
     for air_quality_factor in air_quality_data:
-        air_quality_factor_level = 0
-        thresholds = own_data[air_quality_factor][2]
-        for level in range(len(thresholds)):
-            if mqtt_values[air_quality_factor] > thresholds[level]:
-                air_quality_factor_level = level + 1
-        if air_quality_factor_level > combined_air_quality_level:
-            combined_air_quality_level = air_quality_factor_level
-            combined_air_quality_level_factor = air_quality_factor 
+        if mqtt_values['Gas Calibrated'] or aio_format[air_quality_factor][2] == False: # Only use gas data if the gas sensors are warm and calibrated
+            air_quality_factor_level = 0
+            thresholds = own_data[air_quality_factor][2]
+            for level in range(len(thresholds)):
+                if mqtt_values[air_quality_factor] > thresholds[level]:
+                    air_quality_factor_level = level + 1
+            if air_quality_factor_level > combined_air_quality_level:
+                combined_air_quality_level = air_quality_factor_level
+                combined_air_quality_level_factor = air_quality_factor 
     combined_air_quality_text = icon_air_quality_levels[combined_air_quality_level] + ": " + combined_air_quality_level_factor
     try:
         aio.send_data(aio_air_quality_level_format.key, combined_air_quality_level)
@@ -1251,6 +1261,7 @@ else:
     outdoor_disp_values = []
 # Used to define aqi components and their priority for the icon display.
 air_quality_data = ["P1", "P2.5", "P10", "Oxi", "Red", "NH3"]
+air_quality_data_no_gas = ["P1", "P2.5", "P10"]
 current_display_is_own = True # Start with own display
 start_current_display = time.time()
 indoor_outdoor_display_duration = 5 # Seconds for duration of indoor or outdoor display
@@ -1350,6 +1361,7 @@ gas_calib_temp = first_temperature_reading
 gas_calib_hum = first_humidity_reading
 gas_calib_bar = first_pressure_reading - bar_comp_factor
 gas_r0_calibration_after_warmup_completed = False
+outdoor_gas_r0_calibration_after_warmup_completed = False # Only used for an indoor unit when indoor/outdoor functionality is enabled
 mqtt_values["Gas Calibrated"] = False # Only set to true after the gas sensor warmup time has been completed
 gas_sensors_warmup_time = 6000
 gas_daily_r0_calibration_completed = False
@@ -1422,11 +1434,13 @@ try:
             mqtt_values["Forecast"] = {"Valid": valid_barometer_history, "3 Hour Change": round(barometer_change, 1), "Forecast": forecast.replace("\n", " ")}
             mqtt_values["Bar"][1] = domoticz_forecast # Add Domoticz Weather Forecast
         last_page, mode, start_current_display, current_display_is_own, update_icon_display = display_results(start_current_display, current_display_is_own, display_modes,
-                                                                                         indoor_outdoor_display_duration, own_data, data_in_display_all_aq,
-                                                                                          outdoor_data, outdoor_reading_captured, own_disp_values,outdoor_disp_values,
-                                                                                         delay, last_page, mode, luft_values, mqtt_values, WIDTH, valid_barometer_history,
-                                                                                         forecast, barometer_available_time, barometer_change, barometer_trend,
-                                                                                         icon_forecast, maxi_temp, mini_temp, update_icon_display)
+                                                                                                              indoor_outdoor_display_duration, own_data, data_in_display_all_aq,
+                                                                                                              outdoor_data, outdoor_reading_captured, own_disp_values,outdoor_disp_values,
+                                                                                                              delay, last_page, mode, luft_values, mqtt_values, WIDTH, valid_barometer_history,
+                                                                                                              forecast, barometer_available_time, barometer_change, barometer_trend,
+                                                                                                              icon_forecast, maxi_temp, mini_temp, update_icon_display,
+                                                                                                              gas_r0_calibration_after_warmup_completed,
+                                                                                                              outdoor_gas_r0_calibration_after_warmup_completed)
         if ((time.time() - start_time) > gas_sensors_warmup_time) and gas_r0_calibration_after_warmup_completed == False: # Calibrate gas sensors after warmup
             gas_calib_temp = raw_temp
             gas_calib_hum = raw_hum
