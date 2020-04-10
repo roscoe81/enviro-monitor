@@ -4,6 +4,7 @@
 "aio_key": "<>",
 "aio_household_prefix": "<>",
 "aio_location_prefix": "<>",
+"aio_package": "<>",
 "enable_send_data_to_homemanager": false,
 "enable_receive_data_from_homemanager": false,
 "enable_indoor_outdoor_functionality": false,
