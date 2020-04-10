@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 3.86 - Gen
+#Northcliff Environment Monitor - 3.87 - Gen
 # Requires Home Manager >=8.43 with new mqtt message topics for indoor and outdoor and new parsed_json labels
 
 import paho.mqtt.client as mqtt
@@ -328,7 +328,7 @@ def log_climate_and_gas(run_time, own_data, raw_red_rs, raw_oxi_rs, raw_nh3_rs, 
                              'Raw Humidity': raw_hum, 'Output Humidity': comp_hum, 'Output Bar': own_data["Bar"][1],
                              'Oxi': own_data["Oxi"][1], 'Red': own_data["Red"][1], 'NH3': own_data["NH3"][1], 'Raw OxiRS': raw_oxi_rs, 'Raw RedRS': raw_red_rs, 'Raw NH3RS': raw_nh3_rs}
     print('Logging Environment Data.', environment_log_data)
-    with open('<Your log file location>', 'a') as f:
+    with open('<Your environment log file location>', 'a') as f:
         f.write(',\n' + json.dumps(environment_log_data))
 
 
@@ -1413,6 +1413,9 @@ red_r0, oxi_r0, nh3_r0 = read_raw_gas()
 reds_r0 = []
 oxis_r0 = []
 nh3s_r0 = []
+gas_calib_temps = []
+gas_calib_hums = []
+gas_calib_bars = []
 print("Startup R0. Red R0:", round(red_r0, 0), "Oxi R0:", round(oxi_r0, 0), "NH3 R0:", round(nh3_r0, 0))
 # Capture temp/hum/bar to define variables
 gas_calib_temp = first_temperature_reading
@@ -1450,7 +1453,7 @@ try:
         persistent_data_log = json.loads(f.read())
 except IOError:
     print('No Persistent Data Log Available. Using Defaults')
-if "Update Time" in persistent_data_log:
+if "Update Time" in persistent_data_log and "Gas Calib Temp List" in persistent_data_log: # Check that the log has been updated and has a format > 3.87
     if (start_time - persistent_data_log["Update Time"]) < 1200: # Only update variables if the log was updated < 20 minutes before start-up
         update_time = persistent_data_log["Update Time"]
         barometer_log_time = persistent_data_log["Barometer Log Time"]
@@ -1467,6 +1470,9 @@ if "Update Time" in persistent_data_log:
         gas_calib_temp = persistent_data_log["Gas Temp"]
         gas_calib_hum = persistent_data_log["Gas Hum"]
         gas_calib_bar = persistent_data_log["Gas Bar"]
+        gas_calib_temps = persistent_data_log["Gas Calib Temp List"]
+        gas_calib_hums = persistent_data_log["Gas Calib Hum List"]
+        gas_calib_bars = persistent_data_log["Gas Calib Bar List"]
         red_r0 = persistent_data_log["Red R0"]
         oxi_r0 = persistent_data_log["Oxi R0"]
         nh3_r0 = persistent_data_log["NH3 R0"]
@@ -1480,8 +1486,9 @@ if "Update Time" in persistent_data_log:
         last_page = persistent_data_log["Last Page"]
         mode = persistent_data_log["Mode"]
         print('Persistent Data Log retrieved and used')
+        print("Recovered R0. Red R0:", round(red_r0, 0), "Oxi R0:", round(oxi_r0, 0), "NH3 R0:", round(nh3_r0, 0))
 mqtt_values["Forecast"] = {"Valid": valid_barometer_history, "3 Hour Change": barometer_change, "Forecast": forecast}
-
+                                 
 # Main loop to read data, display, and send to Luftdaten
 try:
     while True:
@@ -1527,7 +1534,8 @@ try:
                                    "Barometer Trend": barometer_trend, "Icon Forecast": icon_forecast, "Domoticz Forecast": domoticz_forecast,
                                    "AIO Forecast": aio_forecast, "Gas Sensors Warm": gas_r0_calibration_after_warmup_completed, "Gas Temp": gas_calib_temp,
                                    "Gas Hum": gas_calib_hum, "Gas Bar": gas_calib_bar, "Red R0": red_r0, "Oxi R0": oxi_r0, "NH3 R0": nh3_r0,
-                                   "Red R0 List": reds_r0, "Oxi R0 List": oxis_r0, "NH3 R0 List": nh3s_r0, "Own Disp Values": own_disp_values,
+                                   "Red R0 List": reds_r0, "Oxi R0 List": oxis_r0, "NH3 R0 List": nh3s_r0, "Gas Calib Temp List": gas_calib_temps,
+                                   "Gas Calib Hum List": gas_calib_hums, "Gas Calib Bar List": gas_calib_bars, "Own Disp Values": own_disp_values,
                                    "Outdoor Disp Values": outdoor_disp_values, "Maxi Temp": maxi_temp, "Mini Temp": mini_temp, "Last Page": last_page, "Mode": mode}
             print('Logging Barometer, Forecast, Gas Calibration and Display Data')
             with open('<Your Persistent Data Log File Name Here>', 'w') as f:
@@ -1566,7 +1574,7 @@ try:
         # Calibrate gas sensors daily, using average of daily readings over a week if not already done in the current day and if warmup calibration is completed
         # Compensates for gas sensor drift over time
         today=datetime.now()
-        if int(today.strftime('%H')) == gas_daily_r0_calibration_hour and gas_daily_r0_calibration_completed == False and gas_r0_calibration_after_warmup_completed:
+        if int(today.strftime('%H')) == gas_daily_r0_calibration_hour and gas_daily_r0_calibration_completed == False and gas_r0_calibration_after_warmup_completed and first_climate_reading_done:
             print("Daily Gas Sensor Calibration. Old R0s. Red R0:", red_r0, "Oxi R0:", oxi_r0, "NH3 R0:", nh3_r0)
             print("Old Calibration Baseline. Temp:", round(gas_calib_temp, 1), "Hum:", round(gas_calib_hum, 0), "Barometer:", round(gas_calib_bar, 1)) 
             # Set new calibration baseline using 7 day rolling average
