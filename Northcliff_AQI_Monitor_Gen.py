@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 3.87 - Gen
+#Northcliff Environment Monitor - 3.98 - Gen
 # Requires Home Manager >=8.43 with new mqtt message topics for indoor and outdoor and new parsed_json labels
 
 import paho.mqtt.client as mqtt
-from Adafruit_IO import Client, Feed, Data, RequestError, ThrottlingError
 import colorsys
 import math
 import json
@@ -375,6 +374,43 @@ def display_status():
     draw.rectangle((0, 0, 160, 80), back_colour)
     draw.text((x, y), message, font=mediumfont, fill=text_colour)
     disp.display(img)
+    
+def send_data_to_aio(feed_key, data):
+    aio_json = {"value": data}
+    resp_error = False
+    reason = ''
+    response = ''
+    try:
+        response = requests.post(aio_url + '/feeds/' + feed_key + '/data',
+                                 headers={'X-AIO-Key': aio_key,
+                                          'Content-Type': 'application/json'},
+                                 data=json.dumps(aio_json), timeout=5)
+        status_code = response.status_code
+    except requests.exceptions.ConnectionError as e:
+        resp_error = True
+        reason = 'aio Connection Error'
+        print('aio Connection Error', e)
+    except requests.exceptions.Timeout as e:
+        resp_error = True
+        reason = 'aio Timeout Error'
+        print('aio Timeout Error', e)
+    except requests.exceptions.HTTPError as e:
+        resp_error = True
+        reason = 'aio HTTP Error'
+        print('aio HTTP Error', e)     
+    except requests.exceptions.RequestException as e:
+        resp_error = True
+        reason = 'aio Request Error'
+        print('aio Request Error', e)
+    else:
+        if status_code == 429:
+            resp_error = True
+            reason = 'Throttling Error'
+            print('aio Throttling Error')
+        elif status_code >= 400:
+            resp_error = True
+            reason = 'Response Error: ' + str(response.status_code)
+            print('aio ', reason)
 
 def send_to_luftdaten(luft_values, id, enable_particle_sensor):
     print("Sending Data to Luftdaten")
@@ -1068,6 +1104,8 @@ def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, max
     
 def update_aio(mqtt_values, aio_format, aio_forecast_text_format, aio_forecast_icon_format, aio_air_quality_level_format,
                air_quality_text_format, own_data, icon_air_quality_levels, aio_forecast, aio_package, air_quality_data, air_quality_data_no_gas):
+    aio_json = {}
+    aio_path = '/feeds/'
     if mqtt_values['Gas Calibrated'] and aio_package == "Premium":
         print("Sending Premium package feeds to Adafruit IO with Gas Data")
     elif mqtt_values['Gas Calibrated'] == False and aio_package == "Premium":
@@ -1091,83 +1129,36 @@ def update_aio(mqtt_values, aio_format, aio_forecast_text_format, aio_forecast_i
             combined_air_quality_level = air_quality_factor_level
             combined_air_quality_level_factor = air_quality_factor 
     combined_air_quality_text = icon_air_quality_levels[combined_air_quality_level] + ": " + combined_air_quality_level_factor
-    try:
-        aio.send_data(aio_air_quality_level_format.key, combined_air_quality_level) # Used by all aio packages
+    print('Sending Air Quality Level Feed')
+    aio_json['value'] = combined_air_quality_level
+    send_data_to_aio(aio_air_quality_level_format, combined_air_quality_level)  # Used by all aio packages
+    if aio_package == 'Premium':
+        print('Sending Air Quality Text Feed')
+        send_data_to_aio(aio_air_quality_text_format, combined_air_quality_text)
+    if ("Forecast" in mqtt_values and
+        (enable_indoor_outdoor_functionality == False or
+         enable_indoor_outdoor_functionality and indoor_outdoor_function == "Outdoor")):
+        # If indoor_outdoor_functionality is enabled, only send the forecast from the outdoor unit 
         if aio_package == 'Premium':
-            aio.send_data(aio_air_quality_text_format.key, combined_air_quality_text)
-        if ("Forecast" in mqtt_values and
-            (enable_indoor_outdoor_functionality == False or enable_indoor_outdoor_functionality and indoor_outdoor_function == "Outdoor")):
-            # If indoor_outdoor_functionality is enabled, only send the forecast from the outdoor unit 
-            if aio_package == 'Premium':
-                aio.send_data(aio_forecast_text_format.key, mqtt_values["Forecast"]["Forecast"])
-            if aio_package == 'Premium' or aio_package == 'Basic Combo':
-                aio.send_data(aio_forecast_icon_format.key, aio_forecast)
-    except RequestError:
-        print('Adafruit IO Data Update Request Error')
-        aio_error = True
-    except ThrottlingError:
-        print('Adafruit IO Data Update Throttling Error')
-        aio_error = True
-    except requests.exceptions.HTTPError as e:
-        print ('Adafruit IO Data Update http Error:', fe)
-        aio_error = True
-    except requests.exceptions.ConnectionError as e:
-        print ('Adafruit IO Data Update Connection Error:', e)
-        aio_error = True
-    except requests.exceptions.Timeout as e:
-        print ('Adafruit IO Data Update Timeout Error:', e)
-        aio_error = True
-    except requests.exceptions.RequestException as e:
-        print ('Adafruit IO Data Update Request Exception', e)
-        aio_error = True
-    else:
+            print('Sending Weather Forecast Text Feed')
+            send_data_to_aio(aio_forecast_text_format, mqtt_values["Forecast"]["Forecast"])
         if aio_package == 'Premium' or aio_package == 'Basic Combo':
-            print('Successfully sent Air Quality and Weather Forecast feeds')
-        else:
-            print('Successfully sent Air Quality feeds')
+            print('Sending Weather Forecast Icon Feed')
+            send_data_to_aio(aio_forecast_icon_format, aio_forecast)
     # Send other feeds
-    for feed in aio_format: # aio_format is based on aio_package
+    for feed in aio_format: # aio_format varies, based on the relevant aio_package
         if aio_format[feed][1]: # Send the first value of the list if sending humidity or barometer data
             if (feed == "Hum" or
                 feed == "Bar" and enable_indoor_outdoor_functionality == False or
                 feed == "Bar" and enable_indoor_outdoor_functionality and indoor_outdoor_function == "Outdoor"):
-                # If indoor_outdoor_functionality is enabled, only send outdoor barometer feed 
-                try:
-                    aio.send_data(aio_format[feed][0].key, mqtt_values[feed][0])
-                except RequestError:
-                    print('Adafruit IO Data Update Request Error', feed)
-                except ThrottlingError:
-                    print('Adafruit IO Data Update Throttling Error', feed)
-                except requests.exceptions.HTTPError as e:
-                    print ('Adafruit IO Data Update http Error:', feed, e)
-                except requests.exceptions.ConnectionError as e:
-                    print ('Adafruit IO Data Update Connection Error:', feed, e)
-                except requests.exceptions.Timeout as e:
-                    print ('Adafruit IO Data Update Timeout Error:', feed, e)
-                except requests.exceptions.RequestException as e:
-                    print ('Adafruit IO Data Update Request Exception', feed, e)
-                else:
-                    print('Successfully sent', feed, 'Feed')
+                # If indoor_outdoor_functionality is enabled, only send outdoor barometer feed
+                print('Sending', feed, 'Feed')
+                send_data_to_aio(aio_format[feed][0], mqtt_values[feed][0])
         else: # Send the value if sending data other than humidity or barometer
             if (feed != "Red" and feed != "Oxi" and feed != "NH3") or mqtt_values['Gas Calibrated']: # Only send gas data if the gas sensors are warm and calibrated
-                try:
-                    aio.send_data(aio_format[feed][0].key, mqtt_values[feed])
-                except RequestError:
-                    print('Adafruit IO Data Update Request Error', feed)
-                except ThrottlingError:
-                    print('Adafruit IO Data Update Throttling Error', feed)
-                except requests.exceptions.HTTPError as e:
-                    print ('Adafruit IO Data Update http Error:', feed, e)
-                except requests.exceptions.ConnectionError as e:
-                    print ('Adafruit IO Data Update Connection Error:', feed, e)
-                except requests.exceptions.Timeout as e:
-                    print ('Adafruit IO Data Update Timeout Error:', feed, e)
-                except requests.exceptions.RequestException as e:
-                    print ('Adafruit IO Data Update Request Exception', feed, e)
-                else:
-                    print('Successfully sent', feed, 'Feed')
-
-        
+                print('Sending', feed, 'Feed')
+                send_data_to_aio(aio_format[feed][0], mqtt_values[feed])
+     
 # Compensation factors for temperature, humidity and air pressure
 # Cubic polynomial temp comp coefficients adjusted by config's temp_offset
 comp_temp_cub_a = 0.00012
@@ -1320,7 +1311,7 @@ if enable_adafruit_io:
     # Barometer and Weather Forecast Feeds only have one feed per household (i.e. no location prefix)
     # Three aio_packages: Basic Air (Air Quality Level, Air Quality Text, PM1,  PM2.5, PM10), Basic Combo (Air Quality Level, Weather Forecast Icon, Temp, Hum, Bar Feeds) and Premium (All Feeds)
     print('Setting up', aio_package, 'Adafruit IO')
-    aio = Client(aio_user_name, aio_key)
+    aio_url = "https://io.adafruit.com/api/v2/" + aio_user_name
     aio_feed_prefix = aio_household_prefix + '-' + aio_location_prefix
     aio_format = {}
     aio_forecast_text_format = None
@@ -1328,74 +1319,27 @@ if enable_adafruit_io:
     aio_air_quality_level_format = None
     aio_air_quality_text_format = None  
     if aio_package == "Premium":
-        try:
-            aio_format = {'Temp': [aio.feeds(aio_feed_prefix + "-temperature"), False], 'Hum': [aio.feeds(aio_feed_prefix + "-humidity"), True],
-                          'Bar': [aio.feeds(aio_household_prefix + "-barometer"), True], 'Lux': [aio.feeds(aio_feed_prefix + "-lux"), False],
-                          'P1': [aio.feeds(aio_feed_prefix + "-pm1"), False],'P2.5': [aio.feeds(aio_feed_prefix + "-pm2-dot-5"), False],
-                          'P10': [aio.feeds(aio_feed_prefix + "-pm10"), False], 'Red': [aio.feeds(aio_feed_prefix + "-reducing"), False],
-                          'Oxi': [aio.feeds(aio_feed_prefix + "-oxidising"), False], 'NH3': [aio.feeds(aio_feed_prefix + "-ammonia"), False]}
-            aio_forecast_text_format = aio.feeds(aio_household_prefix + "-weather-forecast-text")
-            aio_forecast_icon_format = aio.feeds(aio_household_prefix + "-weather-forecast-icon")
-            aio_air_quality_level_format = aio.feeds(aio_feed_prefix + "-air-quality-level")
-            aio_air_quality_text_format = aio.feeds(aio_feed_prefix + "-air-quality-text")
-        except RequestError:
-            print('Adafruit IO set up Request Error')
-        except ThrottlingError:
-            print('Adafruit IO set up Throttling Error')
-        except requests.exceptions.HTTPError as e:
-            print ('Adafruit IO set up http Error:', e)
-        except requests.exceptions.ConnectionError as e:
-            print ('Adafruit IO set up Connection Error:', e)
-        except requests.exceptions.Timeout as e:
-            print ('Adafruit IO set up Timeout Error:', e)
-        except requests.exceptions.RequestException as e:
-            print ('Adafruit IO set up Request Exception', e)
-        else:
-            print('Premium Adafruit IO set up completed')
+        aio_format = {'Temp': [aio_feed_prefix + "-temperature", False], 'Hum': [aio_feed_prefix + "-humidity", True],
+                      'Bar': [aio_household_prefix + "-barometer", True], 'Lux': [aio_feed_prefix + "-lux", False],
+                      'P1': [aio_feed_prefix + "-pm1", False],'P2.5': [aio_feed_prefix + "-pm2-dot-5", False],
+                      'P10': [aio_feed_prefix + "-pm10", False], 'Red': [aio_feed_prefix + "-reducing", False],
+                      'Oxi': [aio_feed_prefix + "-oxidising", False], 'NH3': [aio_feed_prefix + "-ammonia", False]}
+        aio_forecast_text_format = aio_household_prefix + "-weather-forecast-text"
+        aio_forecast_icon_format = aio_household_prefix + "-weather-forecast-icon"
+        aio_air_quality_level_format = aio_feed_prefix + "-air-quality-level"
+        aio_air_quality_text_format = aio_feed_prefix + "-air-quality-text"
     elif aio_package == "Basic Air":
-        try:
-            aio_format = {'P1': [aio.feeds(aio_feed_prefix + "-pm1"), False],'P2.5': [aio.feeds(aio_feed_prefix + "-pm2-dot-5"), False],
-                          'P10': [aio.feeds(aio_feed_prefix + "-pm10"), False]}
-            aio_air_quality_level_format = aio.feeds(aio_feed_prefix + "-air-quality-level")
-            aio_air_quality_text_format = aio.feeds(aio_feed_prefix + "-air-quality-text")
-        except RequestError:
-            print('Adafruit IO set up Request Error')
-        except ThrottlingError:
-            print('Adafruit IO set up Throttling Error')
-        except requests.exceptions.HTTPError as e:
-            print ('Adafruit IO set up http Error:', e)
-        except requests.exceptions.ConnectionError as e:
-            print ('Adafruit IO set up Connection Error:', e)
-        except requests.exceptions.Timeout as e:
-            print ('Adafruit IO set up Timeout Error:', e)
-        except requests.exceptions.RequestException as e:
-            print ('Adafruit IO set up Request Exception', e)
-        else:
-            print('Basic Air Adafruit IO set up completed')
+        aio_format = {'P1': [aio_feed_prefix + "-pm1", False],'P2.5': [aio_feed_prefix + "-pm2-dot-5", False],
+                      'P10': [aio_feed_prefix + "-pm10", False]}
+        aio_air_quality_level_format = aio_feed_prefix + "-air-quality-level"
+        aio_air_quality_text_format = aio_feed_prefix + "-air-quality-text"
     elif aio_package == "Basic Combo":
-        try:
-            aio_format = {'Temp': [aio.feeds(aio_feed_prefix + "-temperature"), False], 'Hum': [aio.feeds(aio_feed_prefix + "-humidity"), True],
-                          'Bar': [aio.feeds(aio_household_prefix + "-barometer"), True]}
-            aio_forecast_icon_format = aio.feeds(aio_household_prefix + "-weather-forecast-icon")
-            aio_air_quality_level_format = aio.feeds(aio_feed_prefix + "-air-quality-level")
-        except RequestError:
-            print('Adafruit IO set up Request Error')
-        except ThrottlingError:
-            print('Adafruit IO set up Throttling Error')
-        except requests.exceptions.HTTPError as e:
-            print ('Adafruit IO set up http Error:', e)
-        except requests.exceptions.ConnectionError as e:
-            print ('Adafruit IO set up Connection Error:', e)
-        except requests.exceptions.Timeout as e:
-            print ('Adafruit IO set up Timeout Error:', e)
-        except requests.exceptions.RequestException as e:
-            print ('Adafruit IO set up Request Exception', e)
-        else:
-            print('Basic Combo Adafruit IO set up completed')
+        aio_format = {'Temp': [aio_feed_prefix + "-temperature", False], 'Hum': [aio_feed_prefix + "-humidity", True],
+                      'Bar': [aio_household_prefix + "-barometer", True]}
+        aio_forecast_icon_format = aio_household_prefix + "-weather-forecast-icon"
+        aio_air_quality_level_format = aio_feed_prefix + "-air-quality-level"
     else:
-        print('Invalid Adafruit IO Package')
-        
-    
+        print('Invalid Adafruit IO Package') 
     
 # Take one reading from each climate and gas sensor on start up to stabilise readings
 first_pressure_reading = bme280.get_pressure() + bar_comp_factor
@@ -1489,7 +1433,7 @@ if "Update Time" in persistent_data_log and "Gas Calib Temp List" in persistent_
         print("Recovered R0. Red R0:", round(red_r0, 0), "Oxi R0:", round(oxi_r0, 0), "NH3 R0:", round(nh3_r0, 0))
 mqtt_values["Forecast"] = {"Valid": valid_barometer_history, "3 Hour Change": barometer_change, "Forecast": forecast}
                                  
-# Main loop to read data, display, and send to Luftdaten
+# Main loop to read data, display, and send to Luftdaten, HomeManager and Adafruit IO
 try:
     while True:
         time_since_update = time.time() - update_time
@@ -1510,36 +1454,38 @@ try:
                 client.publish(outdoor_mqtt_topic, json.dumps(mqtt_values))
             else:
                 pass
-            update_time = time.time()
-            run_time = round((update_time - start_time), 0)
-            if enable_climate_and_gas_logging:
-                log_climate_and_gas(run_time, own_data, raw_red_rs, raw_oxi_rs, raw_nh3_rs, raw_temp, comp_temp, comp_hum, raw_hum,
-                                    use_external_temp_hum, use_external_barometer, raw_barometer)
-            if enable_adafruit_io and aio_format != {}: # Send data to Adafruit IO if enabled and set up
-                update_aio(mqtt_values, aio_format, aio_forecast_text_format, aio_forecast_icon_format, aio_air_quality_level_format,
-                           aio_air_quality_text_format, own_data, icon_air_quality_levels, aio_forecast, aio_package, air_quality_data, air_quality_data_no_gas)
-                data_sent_to_luftdaten_or_aio = True
-            if enable_luftdaten: # Send data to Luftdaten if enabled
-                resp = send_to_luftdaten(luft_values, id, enable_particle_sensor)
-                logging.info("Luftdaten Response: {}\n".format("ok" if resp else "failed"))
-                data_sent_to_luftdaten_or_aio = True
-            if "Forecast" in mqtt_values:
-                mqtt_values.pop("Forecast") # Remove Forecast after sending it to home manager so that forecast data is only sent when updated
             # Write to the watchdog file
             with open('<Your Watchdog File Name Here>', 'w') as f:
                 f.write('Enviro Script Alive')
-            # Write to the persistent data log
-            persistent_data_log = {"Update Time": update_time, "Barometer Log Time": barometer_log_time, "Forecast": forecast, "Barometer Available Time": barometer_available_time,
-                                   "Valid Barometer History": valid_barometer_history, "Barometer History": barometer_history, "Barometer Change": barometer_change,
-                                   "Barometer Trend": barometer_trend, "Icon Forecast": icon_forecast, "Domoticz Forecast": domoticz_forecast,
-                                   "AIO Forecast": aio_forecast, "Gas Sensors Warm": gas_r0_calibration_after_warmup_completed, "Gas Temp": gas_calib_temp,
-                                   "Gas Hum": gas_calib_hum, "Gas Bar": gas_calib_bar, "Red R0": red_r0, "Oxi R0": oxi_r0, "NH3 R0": nh3_r0,
-                                   "Red R0 List": reds_r0, "Oxi R0 List": oxis_r0, "NH3 R0 List": nh3s_r0, "Gas Calib Temp List": gas_calib_temps,
-                                   "Gas Calib Hum List": gas_calib_hums, "Gas Calib Bar List": gas_calib_bars, "Own Disp Values": own_disp_values,
-                                   "Outdoor Disp Values": outdoor_disp_values, "Maxi Temp": maxi_temp, "Mini Temp": mini_temp, "Last Page": last_page, "Mode": mode}
-            print('Logging Barometer, Forecast, Gas Calibration and Display Data')
-            with open('<Your Persistent Data Log File Name Here>', 'w') as f:
-                f.write(json.dumps(persistent_data_log))
+            update_time = time.time()
+            run_time = round((update_time - start_time), 0)
+            if run_time > 300: # Only provide external data updates after a five minute stabilisation period
+                if enable_climate_and_gas_logging:
+                    log_climate_and_gas(run_time, own_data, raw_red_rs, raw_oxi_rs, raw_nh3_rs, raw_temp, comp_temp, comp_hum, raw_hum,
+                                        use_external_temp_hum, use_external_barometer, raw_barometer)
+                if enable_adafruit_io and aio_format != {}: # Send data to Adafruit IO if enabled and set up
+                    update_aio(mqtt_values, aio_format, aio_forecast_text_format, aio_forecast_icon_format, aio_air_quality_level_format,
+                               aio_air_quality_text_format, own_data, icon_air_quality_levels, aio_forecast, aio_package, air_quality_data, air_quality_data_no_gas)
+                    data_sent_to_luftdaten_or_aio = True
+                if enable_luftdaten: # Send data to Luftdaten if enabled
+                    resp = send_to_luftdaten(luft_values, id, enable_particle_sensor)
+                    logging.info("Luftdaten Response: {}\n".format("ok" if resp else "failed"))
+                    data_sent_to_luftdaten_or_aio = True
+                if "Forecast" in mqtt_values:
+                    mqtt_values.pop("Forecast") # Remove Forecast after sending it to home manager so that forecast data is only sent when updated
+                # Write to the persistent data log
+                persistent_data_log = {"Update Time": update_time, "Barometer Log Time": barometer_log_time, "Forecast": forecast, "Barometer Available Time": barometer_available_time,
+                                       "Valid Barometer History": valid_barometer_history, "Barometer History": barometer_history, "Barometer Change": barometer_change,
+                                       "Barometer Trend": barometer_trend, "Icon Forecast": icon_forecast, "Domoticz Forecast": domoticz_forecast,
+                                       "AIO Forecast": aio_forecast, "Gas Sensors Warm": gas_r0_calibration_after_warmup_completed, "Gas Temp": gas_calib_temp,
+                                       "Gas Hum": gas_calib_hum, "Gas Bar": gas_calib_bar, "Red R0": red_r0, "Oxi R0": oxi_r0, "NH3 R0": nh3_r0,
+                                       "Red R0 List": reds_r0, "Oxi R0 List": oxis_r0, "NH3 R0 List": nh3s_r0, "Gas Calib Temp List": gas_calib_temps,
+                                       "Gas Calib Hum List": gas_calib_hums, "Gas Calib Bar List": gas_calib_bars, "Own Disp Values": own_disp_values,
+                                       "Outdoor Disp Values": outdoor_disp_values, "Maxi Temp": maxi_temp, "Mini Temp": mini_temp, "Last Page": last_page, "Mode": mode}
+                print('Logging Barometer, Forecast, Gas Calibration and Display Data')
+                with open('<Your Persistent Data Log File Name Here>', 'w') as f:
+                    f.write(json.dumps(persistent_data_log))
+                print('Waiting for next capture cycle')
         if first_climate_reading_done and (time.time() - barometer_log_time) >= 1200: # Read and update the barometer log if the first climate reading has been done and the last update was >= 20 minutes ago
             if barometer_log_time == 0: # If this is the first barometer log, record the time that a forecast will be available (3 hours)
                 barometer_available_time = time.time() + 10800
