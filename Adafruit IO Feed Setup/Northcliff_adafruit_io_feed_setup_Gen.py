@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor Adafruit IO Feed Setup 6.0 - Gen Add Gauge Blocks
+#Northcliff Environment Monitor Adafruit IO Feed Setup 7.0 - Gen Add Gauge Blocks with multiple feeds for temp and hum
 # Supports aio feeds for Northcliff Enviro Monitor Versions >= 3.89
 from Adafruit_IO import Client, Feed, Data, RequestError
 import requests
@@ -206,7 +206,25 @@ def create_aio_enviro_blocks():
                     block_error_name = block
                     block_error_reason = reason
                 else:
-                    print(household, location, dashboard_blocks[block]["name"], 'Block Creation Successful')
+                    print(household, dashboard_blocks[block]["name"], 'Block Creation Successful')
+            elif (dashboard_blocks[block]["name"] == "Temperature Chart" or dashboard_blocks[block]["name"] == "Humidity Chart"):
+                # Can be only one of these per property and they have more than one block_feed each
+                for key in dashboard_blocks[block]:
+                    if key != "block_feeds":
+                        block_json[key] = dashboard_blocks[block][key]
+                    else:
+                        block_json["block_feeds"] = [{"group_id": dashboard_blocks[block]["block_feeds"][0]["group_id"], "feed_id": aio_feed_prefix[household]["key"] + "-"
+                                                          + aio_feed_prefix[household]["locations"][location] + "-" + dashboard_blocks[block]["block_feeds"][0]["feed_id"]}
+                                                         for location in aio_feed_prefix[household]["locations"]]
+                # Send block data
+                #print("block_json", block_json)
+                response, resp_error, reason = _post('/dashboards/' + dashboard_key + '/blocks', block_json)
+                if resp_error:
+                    create_block_error = True
+                    block_error_name = block
+                    block_error_reason = reason
+                else:
+                    print(household, dashboard_blocks[block]["name"], 'Block Creation Successful')
             elif (dashboard_blocks[block]["name"] == "Temperature Gauge" or dashboard_blocks[block]["name"] == "Humidity Gauge" or
                   dashboard_blocks[block]["name"] == "Air Quality Level Gauge" or dashboard_blocks[block]["name"] == "Air Quality Level Text" or
                   dashboard_blocks[block]["name"] == "PM2.5 Gauge"): # Can be more than one of these per property and they only have one block_feed each
@@ -251,10 +269,11 @@ def create_aio_enviro_blocks():
                         block_error_name = block
                         block_error_reason = reason
                     else:
-                        print(household, location, dashboard_blocks[block]["name"], 'Block Creation Successful')              
+                        print(household, location, dashboard_blocks[block]["name"], 'Block Creation Successful')    
     if create_block_error:
-        print(household, 'Dashboard Creation Failed because of', block_error_reason)                 
-                
+        print(household, 'Dashboard Creation Failed because of', block_error_reason) 
+ 
+ 
 # Set up Adafruit IO
 print('Setting up Adafruit IO')
 aio_url = "https://io.adafruit.com/api/v2/" + aio_user_name
