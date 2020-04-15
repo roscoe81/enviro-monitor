@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor Adafruit IO Feed Setup 7.0 - Gen Add Gauge Blocks with multiple feeds for temp and hum
+#Northcliff Environment Monitor Adafruit IO Feed Setup 7.1 - Gen Add Light Level Chart to Premium Blocks
 # Supports aio feeds for Northcliff Enviro Monitor Versions >= 3.89
 from Adafruit_IO import Client, Feed, Data, RequestError
 import requests
@@ -63,7 +63,10 @@ enviro_aio_premium_blocks = [{"name": "Temperature Gauge", "key": "temperature-g
                               "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "humidity", "group_id": "default"}]},
                              {"name": "Air Pressure Chart", "key": "air-pressure", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "hPa", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "1",
                                                                                                                                     "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
-                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "barometer", "group_id": "default"}]}]
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "barometer", "group_id": "default"}]},
+                             {"name": "Light Level Chart", "key": "lux", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "Lux", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "0",
+                                                                                                                                    "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "lux", "group_id": "default"}]}]
 enviro_aio_basic_air_blocks = [{"name": "Air Quality Level Gauge", "key": "air-quality-level", "visual_type": "gauge", "description": "", "properties": {"showIcon": False, "label": "Level", "minValue": "0", "maxValue": "3.9",
                                                                                                                                                  "ringWidth": "25", "minWarning": "1", "maxWarning": "2", "decimalPlaces": "0"},
                                 "row": 0, "column": 0, "dashboard_id": 0, "size_x": 4, "size_y": 4, "block_feeds": [{"feed_id": "air-quality-level", "group_id": "default"}]},
@@ -207,7 +210,7 @@ def create_aio_enviro_blocks():
                     block_error_reason = reason
                 else:
                     print(household, dashboard_blocks[block]["name"], 'Block Creation Successful')
-            elif (dashboard_blocks[block]["name"] == "Temperature Chart" or dashboard_blocks[block]["name"] == "Humidity Chart"):
+            elif (dashboard_blocks[block]["name"] == "Temperature Chart" or dashboard_blocks[block]["name"] == "Humidity Chart" or dashboard_blocks[block]["name"] == "Light Level Chart"):
                 # Can be only one of these per property and they have more than one block_feed each
                 for key in dashboard_blocks[block]:
                     if key != "block_feeds":
@@ -272,7 +275,7 @@ def create_aio_enviro_blocks():
                         print(household, location, dashboard_blocks[block]["name"], 'Block Creation Successful')    
     if create_block_error:
         print(household, 'Dashboard Creation Failed because of', block_error_reason) 
- 
+  
  
 # Set up Adafruit IO
 print('Setting up Adafruit IO')
