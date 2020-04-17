@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 3.98 - Gen
+#Northcliff Environment Monitor - 3.99 - Gen
 # Requires Home Manager >=8.43 with new mqtt message topics for indoor and outdoor and new parsed_json labels
 
 import paho.mqtt.client as mqtt
@@ -1132,7 +1132,7 @@ def update_aio(mqtt_values, aio_format, aio_forecast_text_format, aio_forecast_i
     print('Sending Air Quality Level Feed')
     aio_json['value'] = combined_air_quality_level
     send_data_to_aio(aio_air_quality_level_format, combined_air_quality_level)  # Used by all aio packages
-    if aio_package == 'Premium':
+    if aio_package == 'Premium' or aio_package == 'Basic Air':
         print('Sending Air Quality Text Feed')
         send_data_to_aio(aio_air_quality_text_format, combined_air_quality_text)
     if ("Forecast" in mqtt_values and
