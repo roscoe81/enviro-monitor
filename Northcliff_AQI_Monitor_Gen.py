@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 3.99 - Gen
+#Northcliff Environment Monitor - 4.1 - Gen
 # Requires Home Manager >=8.43 with new mqtt message topics for indoor and outdoor and new parsed_json labels
 
 import paho.mqtt.client as mqtt
@@ -83,6 +83,8 @@ def retrieve_config():
     enable_adafruit_io = parsed_config_parameters['enable_adafruit_io']
     aio_user_name = parsed_config_parameters['aio_user_name']
     aio_key = parsed_config_parameters['aio_key']
+    aio_feed_window = parsed_config_parameters['aio_feed_window']
+    aio_feed_sequence = parsed_config_parameters['aio_feed_sequence']
     aio_household_prefix = parsed_config_parameters['aio_household_prefix']
     aio_location_prefix = parsed_config_parameters['aio_location_prefix']
     aio_package = parsed_config_parameters['aio_package']
@@ -104,15 +106,17 @@ def retrieve_config():
     city_name = parsed_config_parameters['city_name']
     time_zone = parsed_config_parameters['time_zone']
     custom_locations = parsed_config_parameters['custom_locations']
-    return (temp_offset, enable_adafruit_io, aio_user_name, aio_key, aio_household_prefix, aio_location_prefix, aio_package,
-            enable_send_data_to_homemanager, enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality,
+    return (temp_offset, enable_adafruit_io, aio_user_name, aio_key, aio_feed_window, aio_feed_sequence,
+            aio_household_prefix, aio_location_prefix, aio_package, enable_send_data_to_homemanager,
+            enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality,
             mqtt_broker_name, enable_luftdaten, enable_climate_and_gas_logging, enable_particle_sensor,
             incoming_temp_hum_mqtt_topic, incoming_temp_hum_mqtt_sensor_name, incoming_barometer_mqtt_topic, incoming_barometer_sensor_id,
             indoor_outdoor_function, mqtt_client_name, outdoor_mqtt_topic, indoor_mqtt_topic, city_name, time_zone, custom_locations)
 
 # Config Setup
-(temp_offset, enable_adafruit_io, aio_user_name, aio_key, aio_household_prefix, aio_location_prefix, aio_package,
-  enable_send_data_to_homemanager, enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality, mqtt_broker_name,
+(temp_offset, enable_adafruit_io, aio_user_name, aio_key, aio_feed_window, aio_feed_sequence,
+  aio_household_prefix, aio_location_prefix, aio_package, enable_send_data_to_homemanager,
+  enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality, mqtt_broker_name,
   enable_luftdaten, enable_climate_and_gas_logging,  enable_particle_sensor, incoming_temp_hum_mqtt_topic,
   incoming_temp_hum_mqtt_sensor_name, incoming_barometer_mqtt_topic, incoming_barometer_sensor_id,
   indoor_outdoor_function, mqtt_client_name, outdoor_mqtt_topic, indoor_mqtt_topic,
@@ -1438,7 +1442,10 @@ try:
     while True:
         time_since_update = time.time() - update_time
         luft_values, mqtt_values, own_data, own_disp_values = read_pm_values(luft_values, mqtt_values, own_data, own_disp_values)
-        if time_since_update > 145:
+        # Read climate values, provide external updates and write to watchdog file every 5 minutes.
+        # Place it in the configured aio feed window if aio is enabled
+        today=datetime.now()
+        if time_since_update >= 300 and (int(today.strftime('%M')) % 5 == aio_feed_window and int(today.strftime('%S')) // 15 == aio_feed_sequence or enable_adafruit_io == False):
             (luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values, raw_red_rs, raw_oxi_rs, raw_nh3_rs,
              raw_temp, comp_temp, comp_hum, raw_hum, use_external_temp_hum,
              use_external_barometer, raw_barometer) = read_climate_gas_values(luft_values, mqtt_values, own_data,
@@ -1459,7 +1466,7 @@ try:
                 f.write('Enviro Script Alive')
             update_time = time.time()
             run_time = round((update_time - start_time), 0)
-            if run_time > 300: # Only provide external data updates after a five minute stabilisation period
+            if run_time >= 300: # Only provide external data updates after a five minute stabilisation period
                 if enable_climate_and_gas_logging:
                     log_climate_and_gas(run_time, own_data, raw_red_rs, raw_oxi_rs, raw_nh3_rs, raw_temp, comp_temp, comp_hum, raw_hum,
                                         use_external_temp_hum, use_external_barometer, raw_barometer)

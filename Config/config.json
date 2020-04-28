@@ -2,6 +2,8 @@
 "enable_adafruit_io": false,
 "aio_user_name": "<>",
 "aio_key": "<>",
+"aio_feed_window": 0,
+"aio_feed_sequence": 0,
 "aio_household_prefix": "<>",
 "aio_location_prefix": "<>",
 "aio_package": "<>",
