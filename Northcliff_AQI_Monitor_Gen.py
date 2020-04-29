@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 4.1 - Gen
+#Northcliff Environment Monitor - 4.11 - Gen
 # Requires Home Manager >=8.43 with new mqtt message topics for indoor and outdoor and new parsed_json labels
 
 import paho.mqtt.client as mqtt
@@ -1165,15 +1165,15 @@ def update_aio(mqtt_values, aio_format, aio_forecast_text_format, aio_forecast_i
      
 # Compensation factors for temperature, humidity and air pressure
 # Cubic polynomial temp comp coefficients adjusted by config's temp_offset
-comp_temp_cub_a = 0.00012
-comp_temp_cub_b = -0.01408
-comp_temp_cub_c = 1.38546
-comp_temp_cub_d = -8.17903
+comp_temp_cub_a = -0.0001
+comp_temp_cub_b = 0.0037
+comp_temp_cub_c = 1.00568
+comp_temp_cub_d = -6.78291
 comp_temp_cub_d = comp_temp_cub_d + temp_offset
 # Quadratic polynomial hum comp coefficients
-comp_hum_quad_a = -0.0051
-comp_hum_quad_b = 1.8070
-comp_hum_quad_c = -0.2405
+comp_hum_quad_a = -0.0032
+comp_hum_quad_b = 1.6931
+comp_hum_quad_c = 0.9391
     
 bar_comp_factor = 2
 # Gas Comp Factors: Change in Rs per degree C, percent humidity or Hpa of pressure relative to baselines
