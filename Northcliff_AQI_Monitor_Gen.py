@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 4.12 - Gen
+#Northcliff Environment Monitor - 4.13 - Gen
 # Requires Home Manager >=8.43 with new mqtt message topics for indoor and outdoor and new parsed_json labels
 
 import paho.mqtt.client as mqtt
@@ -80,6 +80,7 @@ def retrieve_config():
     except IOError:
         print('Config Retrieval Failed')
     temp_offset = parsed_config_parameters['temp_offset']
+    altitude = parsed_config_parameters['altitude']
     enable_adafruit_io = parsed_config_parameters['enable_adafruit_io']
     aio_user_name = parsed_config_parameters['aio_user_name']
     aio_key = parsed_config_parameters['aio_key']
@@ -106,7 +107,7 @@ def retrieve_config():
     city_name = parsed_config_parameters['city_name']
     time_zone = parsed_config_parameters['time_zone']
     custom_locations = parsed_config_parameters['custom_locations']
-    return (temp_offset, enable_adafruit_io, aio_user_name, aio_key, aio_feed_window, aio_feed_sequence,
+    return (temp_offset, altitude, enable_adafruit_io, aio_user_name, aio_key, aio_feed_window, aio_feed_sequence,
             aio_household_prefix, aio_location_prefix, aio_package, enable_send_data_to_homemanager,
             enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality,
             mqtt_broker_name, enable_luftdaten, enable_climate_and_gas_logging, enable_particle_sensor,
@@ -114,7 +115,7 @@ def retrieve_config():
             indoor_outdoor_function, mqtt_client_name, outdoor_mqtt_topic, indoor_mqtt_topic, city_name, time_zone, custom_locations)
 
 # Config Setup
-(temp_offset, enable_adafruit_io, aio_user_name, aio_key, aio_feed_window, aio_feed_sequence,
+(temp_offset, altitude, enable_adafruit_io, aio_user_name, aio_key, aio_feed_window, aio_feed_sequence,
   aio_household_prefix, aio_location_prefix, aio_package, enable_send_data_to_homemanager,
   enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality, mqtt_broker_name,
   enable_luftdaten, enable_climate_and_gas_logging,  enable_particle_sensor, incoming_temp_hum_mqtt_topic,
@@ -166,7 +167,7 @@ def read_pm_values(luft_values, mqtt_values, own_data, own_disp_values):
     return(luft_values, mqtt_values, own_data, own_disp_values)
 
 # Read gas and climate values from Home Manager and /or BME280 
-def read_climate_gas_values(luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values, gas_r0_calibration_after_warmup_completed, gas_calib_temp, gas_calib_hum, gas_calib_bar):
+def read_climate_gas_values(luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values, gas_r0_calibration_after_warmup_completed, gas_calib_temp, gas_calib_hum, gas_calib_bar, altitude):
     raw_temp, comp_temp = adjusted_temperature()
     raw_hum, comp_hum = adjusted_humidity()
     current_time = time.time()
@@ -210,16 +211,19 @@ def read_climate_gas_values(luft_values, mqtt_values, own_data, maxi_temp, mini_
     raw_barometer = bme280.get_pressure()
     if use_external_barometer == False:
         print("Internal Barometer")
-        own_data["Bar"][1] = round((raw_barometer + bar_comp_factor), 1)
+        own_data["Bar"][1] = round(raw_barometer * barometer_altitude_comp_factor(altitude, own_data["Temp"][1]), 1)
         own_disp_values["Bar"] = own_disp_values["Bar"][1:] + [[own_data["Bar"][1], 1]]
         mqtt_values["Bar"][0] = own_data["Bar"][1]
-        luft_values["pressure"] = "{:.2f}".format((raw_barometer + bar_comp_factor) * 100)
+        luft_values["pressure"] = "{:.2f}".format(raw_barometer * 100) # Send raw air pressure to Lufdaten, since it does its own altitude air pressure compensation
+        print("Raw Bar:", round(raw_barometer, 1), "Comp Bar:", own_data["Bar"][1])
     else:
         print("External Barometer")
         own_data["Bar"][1] = round(float(es.barometer), 1)
         own_disp_values["Bar"] = own_disp_values["Bar"][1:] + [[own_data["Bar"][1], 1]]
         mqtt_values["Bar"][0] = own_data["Bar"][1]
-        luft_values["pressure"] = "{:.2f}".format(float(es.barometer) * 100)
+        # Remove altitude compensation from external barometer because Lufdaten does its own altitude air pressure compensation
+        luft_values["pressure"] = "{:.2f}".format(float(es.barometer) / barometer_altitude_comp_factor(altitude, own_data["Temp"][1]) * 100)
+        print("Luft Bar:", luft_values["pressure"], "Comp Bar:", own_data["Bar"][1])
     red_in_ppm, oxi_in_ppm, nh3_in_ppm, comp_red_rs, comp_oxi_rs, comp_nh3_rs, raw_red_rs, raw_oxi_rs, raw_nh3_rs = read_gas_in_ppm(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer, gas_r0_calibration_after_warmup_completed)
     own_data["Red"][1] = round(red_in_ppm, 2)
     own_disp_values["Red"] = own_disp_values["Red"][1:] + [[own_data["Red"][1], 1]]
@@ -239,6 +243,10 @@ def read_climate_gas_values(luft_values, mqtt_values, own_data, maxi_temp, mini_
     own_disp_values["Lux"] = own_disp_values["Lux"][1:] + [[own_data["Lux"][1], 1]]
     mqtt_values["Lux"] = own_data["Lux"][1]
     return luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values, raw_red_rs, raw_oxi_rs, raw_nh3_rs, raw_temp, comp_temp, comp_hum, raw_hum, use_external_temp_hum, use_external_barometer, raw_barometer
+    
+def barometer_altitude_comp_factor(alt, temp):
+    comp_factor = math.pow(1 - (0.0065 * altitude/(temp + 0.0065 * alt + 273.15)), -5.257)
+    return comp_factor
     
 def read_raw_gas():
     gas_data = gas.read_all()
@@ -1174,9 +1182,7 @@ comp_temp_cub_d = comp_temp_cub_d + temp_offset
 comp_hum_quad_a = -0.0032
 comp_hum_quad_b = 1.6931
 comp_hum_quad_c = 0.9391
-    
-bar_comp_factor = 2
-# Gas Comp Factors: Change in Rs per degree C, percent humidity or Hpa of pressure relative to baselines
+# Gas Comp Factors: Change in Rs per degree C, percent humidity or hPa of pressure relative to baselines
 red_temp_comp_factor = -5522
 red_hum_comp_factor = -3128
 red_bar_comp_factor = 1200
@@ -1346,9 +1352,9 @@ if enable_adafruit_io:
         print('Invalid Adafruit IO Package') 
     
 # Take one reading from each climate and gas sensor on start up to stabilise readings
-first_pressure_reading = bme280.get_pressure() + bar_comp_factor
 first_temperature_reading = bme280.get_temperature()
 first_humidity_reading = bme280.get_humidity()
+first_pressure_reading = bme280.get_pressure() * barometer_altitude_comp_factor(altitude, first_temperature_reading)
 use_external_temp_hum = False
 use_external_barometer = False
 first_light_reading = ltr559.get_lux()
@@ -1368,7 +1374,7 @@ print("Startup R0. Red R0:", round(red_r0, 0), "Oxi R0:", round(oxi_r0, 0), "NH3
 # Capture temp/hum/bar to define variables
 gas_calib_temp = first_temperature_reading
 gas_calib_hum = first_humidity_reading
-gas_calib_bar = first_pressure_reading - bar_comp_factor
+gas_calib_bar = first_pressure_reading
 gas_r0_calibration_after_warmup_completed = False
 outdoor_gas_r0_calibration_after_warmup_completed = False # Only used for an indoor unit when indoor/outdoor functionality is enabled
 mqtt_values["Gas Calibrated"] = False # Only set to true after the gas sensor warmup time has been completed
@@ -1451,7 +1457,7 @@ try:
              use_external_barometer, raw_barometer) = read_climate_gas_values(luft_values, mqtt_values, own_data,
                                                                               maxi_temp, mini_temp, own_disp_values,
                                                                               gas_r0_calibration_after_warmup_completed,
-                                                                              gas_calib_temp, gas_calib_hum, gas_calib_bar)
+                                                                              gas_calib_temp, gas_calib_hum, gas_calib_bar, altitude)
             first_climate_reading_done = True
             print('Luftdaten Values', luft_values)
             print('mqtt Values', mqtt_values)

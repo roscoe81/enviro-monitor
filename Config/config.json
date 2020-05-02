@@ -1,4 +1,5 @@
 {"temp_offset": 0,
+"altitude": 20,
 "enable_adafruit_io": false,
 "aio_user_name": "<>",
 "aio_key": "<>",
