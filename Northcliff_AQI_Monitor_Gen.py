@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 4.11 - Gen
+#Northcliff Environment Monitor - 4.12 - Gen
 # Requires Home Manager >=8.43 with new mqtt message topics for indoor and outdoor and new parsed_json labels
 
 import paho.mqtt.client as mqtt
@@ -1177,14 +1177,14 @@ comp_hum_quad_c = 0.9391
     
 bar_comp_factor = 2
 # Gas Comp Factors: Change in Rs per degree C, percent humidity or Hpa of pressure relative to baselines
-red_temp_comp_factor = -1200
-red_hum_comp_factor = -1200
+red_temp_comp_factor = -5522
+red_hum_comp_factor = -3128
 red_bar_comp_factor = 1200
-oxi_temp_comp_factor = -2000
+oxi_temp_comp_factor = -25000
 oxi_hum_comp_factor = -1600
 oxi_bar_comp_factor = 2000
-nh3_temp_comp_factor = -2500
-nh3_hum_comp_factor = -1000
+nh3_temp_comp_factor = -26469
+nh3_hum_comp_factor = -1499
 nh3_bar_comp_factor = 1000
 
 # Display setup
