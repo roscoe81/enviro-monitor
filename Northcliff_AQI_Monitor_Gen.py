@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 4.13 - Gen
+#Northcliff Environment Monitor - 4.15 - Gen
 # Requires Home Manager >=8.43 with new mqtt message topics for indoor and outdoor and new parsed_json labels
 
 import paho.mqtt.client as mqtt
@@ -269,15 +269,15 @@ def read_gas_in_ppm(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_
     if comp_red_rs/red_r0 > 0:
         red_ratio = comp_red_rs/red_r0
     else:
-        red_ratio = 1
+        red_ratio = 0.0001
     if comp_oxi_rs/oxi_r0 > 0:
         oxi_ratio = comp_oxi_rs/oxi_r0
     else:
-        oxi_ratio = 1
+        oxi_ratio = 0.0001
     if comp_nh3_rs/nh3_r0 > 0:
         nh3_ratio = comp_nh3_rs/nh3_r0
     else:
-        nh3_ratio = 1
+        nh3_ratio = 0.0001
     red_in_ppm = math.pow(10, -1.25 * math.log10(red_ratio) + 0.64)
     oxi_in_ppm = math.pow(10, math.log10(oxi_ratio) - 0.8129)
     nh3_in_ppm = math.pow(10, -1.8 * math.log10(nh3_ratio) - 0.163)
@@ -323,20 +323,20 @@ def log_climate_and_gas(run_time, own_data, raw_red_rs, raw_oxi_rs, raw_nh3_rs, 
     if use_external_temp_hum and use_external_barometer:
         environment_log_data = {'Run Time': run_time, 'Raw Temperature': raw_temp, 'Output Temp': comp_temp,
                              'Real Temperature': own_data["Temp"][1], 'Raw Humidity': raw_hum,
-                             'Output Humidity': comp_hum, 'Real Humidity': own_data["Hum"][1], 'Output Bar': own_data["Bar"][1], 'Raw Bar': raw_barometer,
+                             'Output Humidity': comp_hum, 'Real Humidity': own_data["Hum"][1], 'Real Bar': own_data["Bar"][1], 'Raw Bar': raw_barometer,
                              'Oxi': own_data["Oxi"][1], 'Red': own_data["Red"][1], 'NH3': own_data["NH3"][1], 'Raw OxiRS': raw_oxi_rs, 'Raw RedRS': raw_red_rs, 'Raw NH3RS': raw_nh3_rs}
     elif use_external_temp_hum and not(use_external_barometer):
         environment_log_data = {'Run Time': run_time, 'Raw Temperature': raw_temp, 'Output Temp': comp_temp,
                              'Real Temperature': own_data["Temp"][1], 'Raw Humidity': raw_hum,
-                             'Output Humidity': comp_hum, 'Real Humidity': own_data["Hum"][1], 'Output Bar': own_data["Bar"][1],
+                             'Output Humidity': comp_hum, 'Real Humidity': own_data["Hum"][1], 'Output Bar': own_data["Bar"][1], 'Raw Bar': raw_barometer,
                              'Oxi': own_data["Oxi"][1], 'Red': own_data["Red"][1], 'NH3': own_data["NH3"][1], 'Raw OxiRS': raw_oxi_rs, 'Raw RedRS': raw_red_rs, 'Raw NH3RS': raw_nh3_rs}     
     elif not(use_external_temp_hum) and use_external_barometer:
         environment_log_data = {'Run Time': run_time, 'Raw Temperature': raw_temp, 'Output Temp': comp_temp,
-                             'Raw Humidity': raw_hum, 'Output Humidity': comp_hum, 'Output Bar': own_data["Bar"][1], 'Raw Bar': raw_barometer,
+                             'Raw Humidity': raw_hum, 'Output Humidity': comp_hum, 'Real Bar': own_data["Bar"][1], 'Raw Bar': raw_barometer,
                              'Oxi': own_data["Oxi"][1], 'Red': own_data["Red"][1], 'NH3': own_data["NH3"][1], 'Raw OxiRS': raw_oxi_rs, 'Raw RedRS': raw_red_rs, 'Raw NH3RS': raw_nh3_rs}
     else:
         environment_log_data = {'Run Time': run_time, 'Raw Temperature': raw_temp, 'Output Temp': comp_temp,
-                             'Raw Humidity': raw_hum, 'Output Humidity': comp_hum, 'Output Bar': own_data["Bar"][1],
+                             'Raw Humidity': raw_hum, 'Output Humidity': comp_hum, 'Output Bar': own_data["Bar"][1], 'Raw Bar': raw_barometer,
                              'Oxi': own_data["Oxi"][1], 'Red': own_data["Red"][1], 'NH3': own_data["NH3"][1], 'Raw OxiRS': raw_oxi_rs, 'Raw RedRS': raw_red_rs, 'Raw NH3RS': raw_nh3_rs}
     print('Logging Environment Data.', environment_log_data)
     with open('<Your environment log file location>', 'a') as f:
@@ -1185,13 +1185,13 @@ comp_hum_quad_c = 0.9391
 # Gas Comp Factors: Change in Rs per degree C, percent humidity or hPa of pressure relative to baselines
 red_temp_comp_factor = -5522
 red_hum_comp_factor = -3128
-red_bar_comp_factor = 1200
-oxi_temp_comp_factor = -25000
-oxi_hum_comp_factor = -1600
-oxi_bar_comp_factor = 2000
-nh3_temp_comp_factor = -26469
+red_bar_comp_factor = -915
+oxi_temp_comp_factor = -5144
+oxi_hum_comp_factor = 1757
+oxi_bar_comp_factor = -566
+nh3_temp_comp_factor = -5000
 nh3_hum_comp_factor = -1499
-nh3_bar_comp_factor = 1000
+nh3_bar_comp_factor = -1000
 
 # Display setup
 delay = 0.5 # Debounce the proximity tap when choosing the data to be displayed
