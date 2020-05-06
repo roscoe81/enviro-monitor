@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 4.15 - Gen
-# Requires Home Manager >=8.43 with new mqtt message topics for indoor and outdoor and new parsed_json labels
+#Northcliff Environment Monitor - 4.16 - Gen
+# Requires Home Manager >=8.54 with Enviro Monitor timeout
 
 import paho.mqtt.client as mqtt
 import colorsys
@@ -445,7 +445,8 @@ def send_to_luftdaten(luft_values, id, enable_particle_sensor):
                          "X-Sensor": id,
                          "Content-Type": "application/json",
                          "cache-control": "no-cache"
-                     }
+                     },
+                    timeout=5
             )
         except requests.exceptions.ConnectionError as e:
             resp1_exception = True
@@ -469,7 +470,8 @@ def send_to_luftdaten(luft_values, id, enable_particle_sensor):
                      "X-Sensor": id,
                      "Content-Type": "application/json",
                      "cache-control": "no-cache"
-                 }
+                 },
+                timeout=5
         )
     except requests.exceptions.ConnectionError as e:
         resp2_exception = True
