@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 4.16 - Gen
+#Northcliff Environment Monitor - 4.17 - Gen
 # Requires Home Manager >=8.54 with Enviro Monitor timeout
 
 import paho.mqtt.client as mqtt
@@ -662,7 +662,7 @@ def display_results(start_current_display, current_display_is_own, display_modes
         pass
     return last_page, mode, start_current_display, current_display_is_own
 
-class ExternalSensors(object): # Handles the external temp/hum sesnors
+class ExternalSensors(object): # Handles the external temp/hum sensors
     def __init__(self):
         self.barometer_update_time = 0
         self.temp_humidity_update_time = 0
@@ -1395,7 +1395,11 @@ forecast = 'Insufficient Data'
 icon_forecast = 'Wait'
 domoticz_forecast = '0'
 aio_forecast = 'question'
-update_time = 0
+short_update_time = 0 # Set the short update time baseline (for watchdog alive file and Luftdaten updates)
+short_update_delay = 150 # Time between short updates
+long_update_time = 0 # Set the long update time baseline (for all other updates)
+long_update_delay = 300 # Time between long updates
+startup_stabilisation_time = 300 # Time to allow sensor stabilisation before sending external updates
 start_time = time.time()
 barometer_available_time = start_time + 10945 # Initialise the time until a forecast is available (3 hours + the time taken before the first climate reading)
 mqtt_values["Bar"] = [gas_calib_bar, domoticz_forecast]
@@ -1411,7 +1415,8 @@ except IOError:
     print('No Persistent Data Log Available. Using Defaults')
 if "Update Time" in persistent_data_log and "Gas Calib Temp List" in persistent_data_log: # Check that the log has been updated and has a format > 3.87
     if (start_time - persistent_data_log["Update Time"]) < 1200: # Only update variables if the log was updated < 20 minutes before start-up
-        update_time = persistent_data_log["Update Time"]
+        long_update_time = persistent_data_log["Update Time"]
+        short_update_time = long_update_time
         barometer_log_time = persistent_data_log["Barometer Log Time"]
         forecast = persistent_data_log["Forecast"]
         barometer_available_time = persistent_data_log["Barometer Available Time"]
@@ -1443,17 +1448,19 @@ if "Update Time" in persistent_data_log and "Gas Calib Temp List" in persistent_
         mode = persistent_data_log["Mode"]
         print('Persistent Data Log retrieved and used')
         print("Recovered R0. Red R0:", round(red_r0, 0), "Oxi R0:", round(oxi_r0, 0), "NH3 R0:", round(nh3_r0, 0))
-mqtt_values["Forecast"] = {"Valid": valid_barometer_history, "3 Hour Change": barometer_change, "Forecast": forecast}
+    else:
+        print('Persistent Data Log Too Old. Using Defaults')
+mqtt_values["Forecast"] = {"Valid": valid_barometer_history, "3 Hour Change": round(barometer_change, 1), "Forecast": forecast}
                                  
 # Main loop to read data, display, and send to Luftdaten, HomeManager and Adafruit IO
 try:
-    while True:
-        time_since_update = time.time() - update_time
+    while True:       
         luft_values, mqtt_values, own_data, own_disp_values = read_pm_values(luft_values, mqtt_values, own_data, own_disp_values)
-        # Read climate values, provide external updates and write to watchdog file every 5 minutes.
-        # Place it in the configured aio feed window if aio is enabled
-        today=datetime.now()
-        if time_since_update >= 300 and (int(today.strftime('%M')) % 5 == aio_feed_window and int(today.strftime('%S')) // 15 == aio_feed_sequence or enable_adafruit_io == False):
+        # Read climate values, provide external updates and write to watchdog file every 2.5 minutes.
+        time_since_short_update = time.time() - short_update_time
+        run_time = round((time.time() - start_time), 0)
+        if time_since_short_update >= short_update_delay:
+            short_update_time = time.time()
             (luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values, raw_red_rs, raw_oxi_rs, raw_nh3_rs,
              raw_temp, comp_temp, comp_hum, raw_hum, use_external_temp_hum,
              use_external_barometer, raw_barometer) = read_climate_gas_values(luft_values, mqtt_values, own_data,
@@ -1463,44 +1470,46 @@ try:
             first_climate_reading_done = True
             print('Luftdaten Values', luft_values)
             print('mqtt Values', mqtt_values)
+            # Write to the watchdog file
+            with open('<Your Watchdog File Name Here>', 'w') as f:
+                f.write('Enviro Script Alive')
+            if enable_luftdaten: # Send data to Luftdaten if enabled
+                resp = send_to_luftdaten(luft_values, id, enable_particle_sensor)
+                logging.info("Luftdaten Response: {}\n".format("ok" if resp else "failed"))
+                data_sent_to_luftdaten_or_aio = True
+        today=datetime.now()
+        time_since_long_update = time.time() - long_update_time
+        # Provide other external updates and update persistent data log every 5 minutes (within the configured aio feed window if aio is enabled), after the sensors have stabilised
+        if time_since_long_update >= long_update_delay and run_time > startup_stabilisation_time and (int(today.strftime('%M')) % 5 == aio_feed_window and int(today.strftime('%S')) // 15 == aio_feed_sequence or enable_adafruit_io == False):           
+            long_update_time = time.time()
             if (indoor_outdoor_function == 'Indoor' and enable_send_data_to_homemanager):
                 client.publish(indoor_mqtt_topic, json.dumps(mqtt_values))
             elif (indoor_outdoor_function == 'Outdoor' and (enable_indoor_outdoor_functionality or enable_send_data_to_homemanager)):
                 client.publish(outdoor_mqtt_topic, json.dumps(mqtt_values))
             else:
                 pass
-            # Write to the watchdog file
-            with open('<Your Watchdog File Name Here>', 'w') as f:
-                f.write('Enviro Script Alive')
-            update_time = time.time()
-            run_time = round((update_time - start_time), 0)
-            if run_time >= 300: # Only provide external data updates after a five minute stabilisation period
-                if enable_climate_and_gas_logging:
-                    log_climate_and_gas(run_time, own_data, raw_red_rs, raw_oxi_rs, raw_nh3_rs, raw_temp, comp_temp, comp_hum, raw_hum,
-                                        use_external_temp_hum, use_external_barometer, raw_barometer)
-                if enable_adafruit_io and aio_format != {}: # Send data to Adafruit IO if enabled and set up
-                    update_aio(mqtt_values, aio_format, aio_forecast_text_format, aio_forecast_icon_format, aio_air_quality_level_format,
-                               aio_air_quality_text_format, own_data, icon_air_quality_levels, aio_forecast, aio_package, air_quality_data, air_quality_data_no_gas)
-                    data_sent_to_luftdaten_or_aio = True
-                if enable_luftdaten: # Send data to Luftdaten if enabled
-                    resp = send_to_luftdaten(luft_values, id, enable_particle_sensor)
-                    logging.info("Luftdaten Response: {}\n".format("ok" if resp else "failed"))
-                    data_sent_to_luftdaten_or_aio = True
-                if "Forecast" in mqtt_values:
-                    mqtt_values.pop("Forecast") # Remove Forecast after sending it to home manager so that forecast data is only sent when updated
-                # Write to the persistent data log
-                persistent_data_log = {"Update Time": update_time, "Barometer Log Time": barometer_log_time, "Forecast": forecast, "Barometer Available Time": barometer_available_time,
-                                       "Valid Barometer History": valid_barometer_history, "Barometer History": barometer_history, "Barometer Change": barometer_change,
-                                       "Barometer Trend": barometer_trend, "Icon Forecast": icon_forecast, "Domoticz Forecast": domoticz_forecast,
-                                       "AIO Forecast": aio_forecast, "Gas Sensors Warm": gas_r0_calibration_after_warmup_completed, "Gas Temp": gas_calib_temp,
-                                       "Gas Hum": gas_calib_hum, "Gas Bar": gas_calib_bar, "Red R0": red_r0, "Oxi R0": oxi_r0, "NH3 R0": nh3_r0,
-                                       "Red R0 List": reds_r0, "Oxi R0 List": oxis_r0, "NH3 R0 List": nh3s_r0, "Gas Calib Temp List": gas_calib_temps,
-                                       "Gas Calib Hum List": gas_calib_hums, "Gas Calib Bar List": gas_calib_bars, "Own Disp Values": own_disp_values,
-                                       "Outdoor Disp Values": outdoor_disp_values, "Maxi Temp": maxi_temp, "Mini Temp": mini_temp, "Last Page": last_page, "Mode": mode}
-                print('Logging Barometer, Forecast, Gas Calibration and Display Data')
-                with open('<Your Persistent Data Log File Name Here>', 'w') as f:
-                    f.write(json.dumps(persistent_data_log))
-                print('Waiting for next capture cycle')
+            if enable_climate_and_gas_logging:
+                log_climate_and_gas(run_time, own_data, raw_red_rs, raw_oxi_rs, raw_nh3_rs, raw_temp, comp_temp, comp_hum, raw_hum,
+                                    use_external_temp_hum, use_external_barometer, raw_barometer)
+            if enable_adafruit_io and aio_format != {}: # Send data to Adafruit IO if enabled and set up
+                update_aio(mqtt_values, aio_format, aio_forecast_text_format, aio_forecast_icon_format, aio_air_quality_level_format,
+                           aio_air_quality_text_format, own_data, icon_air_quality_levels, aio_forecast, aio_package, air_quality_data, air_quality_data_no_gas)
+                data_sent_to_luftdaten_or_aio = True
+            # Write to the persistent data log
+            persistent_data_log = {"Update Time": long_update_time, "Barometer Log Time": barometer_log_time, "Forecast": forecast, "Barometer Available Time": barometer_available_time,
+                                   "Valid Barometer History": valid_barometer_history, "Barometer History": barometer_history, "Barometer Change": barometer_change,
+                                   "Barometer Trend": barometer_trend, "Icon Forecast": icon_forecast, "Domoticz Forecast": domoticz_forecast,
+                                   "AIO Forecast": aio_forecast, "Gas Sensors Warm": gas_r0_calibration_after_warmup_completed, "Gas Temp": gas_calib_temp,
+                                   "Gas Hum": gas_calib_hum, "Gas Bar": gas_calib_bar, "Red R0": red_r0, "Oxi R0": oxi_r0, "NH3 R0": nh3_r0,
+                                   "Red R0 List": reds_r0, "Oxi R0 List": oxis_r0, "NH3 R0 List": nh3s_r0, "Gas Calib Temp List": gas_calib_temps,
+                                   "Gas Calib Hum List": gas_calib_hums, "Gas Calib Bar List": gas_calib_bars, "Own Disp Values": own_disp_values,
+                                   "Outdoor Disp Values": outdoor_disp_values, "Maxi Temp": maxi_temp, "Mini Temp": mini_temp, "Last Page": last_page, "Mode": mode}
+            print('Logging Barometer, Forecast, Gas Calibration and Display Data')
+            with open('<Your Persistent Data Log File Name Here>', 'w') as f:
+                f.write(json.dumps(persistent_data_log))
+            if "Forecast" in mqtt_values:
+                mqtt_values.pop("Forecast") # Remove Forecast after sending it to home manager so that forecast data is only sent when updated
+            print('Waiting for next capture cycle')
         if first_climate_reading_done and (time.time() - barometer_log_time) >= 1200: # Read and update the barometer log if the first climate reading has been done and the last update was >= 20 minutes ago
             if barometer_log_time == 0: # If this is the first barometer log, record the time that a forecast will be available (3 hours)
                 barometer_available_time = time.time() + 10800
