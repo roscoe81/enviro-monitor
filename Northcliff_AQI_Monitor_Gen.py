@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 4.20 - Gen
+#Northcliff Environment Monitor - 4.21 - Gen
 # Requires Home Manager >=8.54 with Enviro Monitor timeout
 
 import paho.mqtt.client as mqtt
@@ -1116,8 +1116,9 @@ def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, max
     # Display image
     disp.display(img)
     
-def update_aio(mqtt_values, aio_format, aio_forecast_text_format, aio_forecast_icon_format, aio_air_quality_level_format,
-               air_quality_text_format, own_data, icon_air_quality_levels, aio_forecast, aio_package, air_quality_data, air_quality_data_no_gas):
+def update_aio(mqtt_values, forecast, aio_format, aio_forecast_text_format, aio_forecast_icon_format, aio_air_quality_level_format,
+               air_quality_text_format, own_data, icon_air_quality_levels, aio_forecast, aio_package, air_quality_data, air_quality_data_no_gas,
+               previous_aio_air_quality_level, previous_aio_air_quality_text, previous_aio_forecast_text, previous_aio_forecast):
     aio_json = {}
     aio_path = '/feeds/'
     if mqtt_values['Gas Calibrated'] and aio_package == "Premium":
@@ -1143,22 +1144,26 @@ def update_aio(mqtt_values, aio_format, aio_forecast_text_format, aio_forecast_i
             combined_air_quality_level = air_quality_factor_level
             combined_air_quality_level_factor = air_quality_factor 
     combined_air_quality_text = icon_air_quality_levels[combined_air_quality_level] + ": " + combined_air_quality_level_factor
-    print('Sending Air Quality Level Feed')
-    aio_json['value'] = combined_air_quality_level
-    send_data_to_aio(aio_air_quality_level_format, combined_air_quality_level)  # Used by all aio packages
-    if aio_package == 'Premium' or aio_package == 'Basic Air':
+    if combined_air_quality_level != previous_aio_air_quality_level: # Only update if it's changed
+        print('Sending Air Quality Level Feed')
+        aio_json['value'] = combined_air_quality_level
+        send_data_to_aio(aio_air_quality_level_format, combined_air_quality_level)  # Used by all aio packages
+        previous_aio_air_quality_level = combined_air_quality_level
+    if (aio_package == 'Premium' or aio_package == 'Basic Air') and combined_air_quality_text != previous_aio_air_quality_text: # Only update if it's changed
         print('Sending Air Quality Text Feed')
         send_data_to_aio(aio_air_quality_text_format, combined_air_quality_text)
-    if ("Forecast" in mqtt_values and
-        (enable_indoor_outdoor_functionality == False or
-         enable_indoor_outdoor_functionality and indoor_outdoor_function == "Outdoor")):
-        # If indoor_outdoor_functionality is enabled, only send the forecast from the outdoor unit 
-        if aio_package == 'Premium':
+        previous_aio_air_quality_text = combined_air_quality_text
+    if enable_indoor_outdoor_functionality == False or enable_indoor_outdoor_functionality and indoor_outdoor_function == "Outdoor":
+        # If indoor_outdoor_functionality is enabled, only send the forecast from the outdoor unit and only if it's been updated
+        aio_forecast_text = forecast.replace("\n", " ")
+        if aio_package == 'Premium' and aio_forecast_text != previous_aio_forecast_text:
             print('Sending Weather Forecast Text Feed')
-            send_data_to_aio(aio_forecast_text_format, mqtt_values["Forecast"]["Forecast"])
-        if aio_package == 'Premium' or aio_package == 'Basic Combo':
+            send_data_to_aio(aio_forecast_text_format, aio_forecast_text)
+            previous_aio_forecast_text = aio_forecast_text
+        if (aio_package == 'Premium' or aio_package == 'Basic Combo') and aio_forecast != previous_aio_forecast:
             print('Sending Weather Forecast Icon Feed')
             send_data_to_aio(aio_forecast_icon_format, aio_forecast)
+            previous_aio_forecast = aio_forecast
     # Send other feeds
     for feed in aio_format: # aio_format varies, based on the relevant aio_package
         if aio_format[feed][1]: # Send the first value of the list if sending humidity or barometer data
@@ -1172,6 +1177,7 @@ def update_aio(mqtt_values, aio_format, aio_forecast_text_format, aio_forecast_i
             if (feed != "Red" and feed != "Oxi" and feed != "NH3") or mqtt_values['Gas Calibrated']: # Only send gas data if the gas sensors are warm and calibrated
                 print('Sending', feed, 'Feed')
                 send_data_to_aio(aio_format[feed][0], mqtt_values[feed])
+    return previous_aio_air_quality_level, previous_aio_air_quality_text, previous_aio_forecast_text, previous_aio_forecast
      
 # Compensation factors for temperature, humidity and air pressure
 # Cubic polynomial temp comp coefficients adjusted by config's temp_offset
@@ -1329,7 +1335,11 @@ if enable_adafruit_io:
     aio_forecast_text_format = None
     aio_forecast_icon_format = None
     aio_air_quality_level_format = None
-    aio_air_quality_text_format = None  
+    aio_air_quality_text_format = None
+    previous_aio_air_quality_level = None
+    previous_aio_air_quality_text = None
+    previous_aio_forecast_text = None
+    previous_aio_forecast = None
     if aio_package == "Premium":
         aio_format = {'Temp': [aio_feed_prefix + "-temperature", False], 'Hum': [aio_feed_prefix + "-humidity", True],
                       'Bar': [aio_household_prefix + "-barometer", True], 'Lux': [aio_feed_prefix + "-lux", False],
@@ -1478,16 +1488,22 @@ try:
                 resp = send_to_luftdaten(luft_values, id, enable_particle_sensor)
                 logging.info("Luftdaten Response: {}\n".format("ok" if resp else "failed"))
                 data_sent_to_luftdaten_or_aio = True
+                print('Waiting for next capture cycle')
         if run_time > startup_stabilisation_time: # Wait until the sensors have stabilised before providing external updates or data logging
             if enable_adafruit_io and aio_format != {}: # Send data to Adafruit IO if enabled, set up and the time is now within the configured window and sequence
                 today=datetime.now()
                 window_minute = int(today.strftime('%M'))
                 window_second = int(today.strftime('%S'))
-                if window_minute % 5 == aio_feed_window and window_second // 15 == aio_feed_sequence and window_minute != previous_aio_update_minute:
-                    update_aio(mqtt_values, aio_format, aio_forecast_text_format, aio_forecast_icon_format, aio_air_quality_level_format,
-                               aio_air_quality_text_format, own_data, icon_air_quality_levels, aio_forecast, aio_package, air_quality_data, air_quality_data_no_gas)
+                if window_minute % 10 == aio_feed_window and window_second // 15 == aio_feed_sequence and window_minute != previous_aio_update_minute:
+                    previous_aio_air_quality_level, previous_aio_air_quality_text, previous_aio_forecast_text, previous_aio_forecast = update_aio(mqtt_values, forecast, aio_format, aio_forecast_text_format,
+                                                                                                                                                        aio_forecast_icon_format, aio_air_quality_level_format,
+                                                                                                                                                        aio_air_quality_text_format, own_data, icon_air_quality_levels,
+                                                                                                                                                        aio_forecast, aio_package, air_quality_data, air_quality_data_no_gas,
+                                                                                                                                                        previous_aio_air_quality_level, previous_aio_air_quality_text,
+                                                                                                                                                        previous_aio_forecast_text, previous_aio_forecast)
                     data_sent_to_luftdaten_or_aio = True
                     previous_aio_update_minute = window_minute
+                    print('Waiting for next capture cycle')
             time_since_long_update = time.time() - long_update_time
             if time_since_long_update >= long_update_delay: # Provide other external updates and update persistent data log every 5 minutes
                 long_update_time = time.time()
