@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor Adafruit IO Feed Setup 7.1 - Gen Add Light Level Chart to Premium Blocks
-# Supports aio feeds for Northcliff Enviro Monitor Versions >= 3.89
-from Adafruit_IO import Client, Feed, Data, RequestError
+#Northcliff Environment Monitor Adafruit IO Feed Setup 7.3 - Gen Add Privacy Option to feeds
 import requests
 import json
 
@@ -17,6 +15,7 @@ aio_feed_prefix = {'Property 1 Name': {'key': 'property1key', 'package': '<aio_p
 aio_user_name = "<Your Adafruit IO User Name Here>"
 aio_key = "<Your Adafruit IO Key Here>"
 #####################################################################################################################################################################################################################
+
 
 # These dictionaries set up the feed name and key suffixes to support the Enviro readings. Don't change these dictionaries.
 enviro_aio_premium_feeds = {"Temperature": "temperature", "Humidity": "humidity", "Barometer": "barometer", "Lux": "lux", "PM1": "pm1", "PM2.5": "pm2-dot-5",
@@ -103,24 +102,35 @@ enviro_aio_basic_combo_blocks = [{"name": "Temperature Gauge", "key": "temperatu
                                                                                                                                     "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
                                   "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "barometer", "group_id": "default"}]}]
 
-    
 def create_aio_enviro_feeds():
+    feed_json = {}
+    create_feed_error = False
     print("Creating Adafruit IO Feeds")
-    request_error = False
     for household in aio_feed_prefix:
         enviro_aio_feeds = enviro_aio_feeds_map[aio_feed_prefix[household]['package']]
         for location in aio_feed_prefix[household]['locations']:
             for enviro_feed in enviro_aio_feeds:
                 if enviro_feed != "Barometer" and enviro_feed != "Weather Forecast Text" and enviro_feed != "Weather Forecast Icon":
-                    feed = Feed(name=household + ' ' + location + ' ' + enviro_feed, key=aio_feed_prefix[household]['key'] + "-" + aio_feed_prefix[household]['locations'][location] + "-" + enviro_aio_feeds[enviro_feed])
+                    feed_json["name"] = household + ' ' + location + ' ' + enviro_feed
+                    feed_json["key"] = aio_feed_prefix[household]['key'] + "-" + aio_feed_prefix[household]['locations'][location] + "-" + enviro_aio_feeds[enviro_feed]
+                    feed_json["description"] = ""
+                    feed_json["visibility"] = aio_feed_prefix[household]["visibility"]                    
                 else:
-                    feed = Feed(name=household + ' ' + enviro_feed, key=aio_feed_prefix[household]['key'] + "-" + enviro_aio_feeds[enviro_feed]) # Only one barometer feed, forecast feed and forecast icon feed per household
-                try:
-                    test = aio.create_feed(feed)
-                    print("Created Feed", test)
-                except RequestError:
-                    print('Adafruit IO Create Feed Request Error', feed)
-                    request_error = True
+                    feed_json["name"] = household + ' ' + enviro_feed
+                    feed_json["key"] = aio_feed_prefix[household]['key'] + "-" + enviro_aio_feeds[enviro_feed] # Only one barometer feed, forecast feed and forecast icon feed per household
+                    feed_json["description"] = ""
+                    feed_json["visibility"] = aio_feed_prefix[household]["visibility"]
+                print(feed_json)
+                response, resp_error, reason = _post('/feeds/', feed_json)
+                #print(response, resp_error, reason)
+                if resp_error:
+                    create_feed_error = True
+                    feed_error_name = feed_json["name"]
+                    feed_error_reason = reason
+                if create_feed_error:
+                    print(feed_json["name"], 'Feed Creation Failed because of',feed_error_reason)
+                else:
+                    print(feed_json["name"], 'Feed Creation Successful')
 
 
 def _post(path, data):
@@ -166,7 +176,7 @@ def create_aio_enviro_dashboards():
         dashboard_json["name"] = household
         dashboard_json["key"] = aio_feed_prefix[household]["key"]
         dashboard_json["description"] = ""
-        dashboard_json["visibility"] = aio_feed_prefix[household]["dashboard_visibility"]
+        dashboard_json["visibility"] = aio_feed_prefix[household]["visibility"]
         response, resp_error, reason = _post('/dashboards/', dashboard_json)
         #print(response, resp_error, reason)
         if resp_error:
@@ -275,13 +285,11 @@ def create_aio_enviro_blocks():
                         print(household, location, dashboard_blocks[block]["name"], 'Block Creation Successful')    
     if create_block_error:
         print(household, 'Dashboard Creation Failed because of', block_error_reason) 
-  
+ 
  
 # Set up Adafruit IO
 print('Setting up Adafruit IO')
 aio_url = "https://io.adafruit.com/api/v2/" + aio_user_name
-aio = Client(aio_user_name, aio_key)
-
 
 create_aio_enviro_feeds()
 create_aio_enviro_dashboards()
