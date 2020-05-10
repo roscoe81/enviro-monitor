@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor Adafruit IO Feed Setup 7.3 - Gen Add Privacy Option to feeds
+#Northcliff Environment Monitor Adafruit IO Feed Setup 7.3a - Gen Add Privacy Option to feeds
 import requests
 import json
 
@@ -10,8 +10,8 @@ import json
 # Also enter your Adafruit IO User Name and Key
 #Enter your data between the #### lines
 #####################################################################################################################################################################################################################
-aio_feed_prefix = {'Property 1 Name': {'key': 'property1key', 'package': '<aio_package>', 'locations': {'<Location1Name>': '<location1key', '<Location2Name>': '<location2key'}, 'dashboard_visibility': '<"public" or "private">'},
-                   'Property 2 Name': {'key': 'property2key', 'package': '<aio_package>', 'locations': {'<Location1Name>': '<location1key>'}, 'dashboard_visibility': '<"public" or "private">'}}
+aio_feed_prefix = {'Property 1 Name': {'key': 'property1key', 'package': '<aio_package>', 'locations': {'<Location1Name>': '<location1key', '<Location2Name>': '<location2key'}, 'visibility': '<"public" or "private">'},
+                   'Property 2 Name': {'key': 'property2key', 'package': '<aio_package>', 'locations': {'<Location1Name>': '<location1key>'}, 'visibility': '<"public" or "private">'}}
 aio_user_name = "<Your Adafruit IO User Name Here>"
 aio_key = "<Your Adafruit IO Key Here>"
 #####################################################################################################################################################################################################################
