@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 4.21 - Gen
+#Northcliff Environment Monitor - 4.39 - Gen
 # Requires Home Manager >=8.54 with Enviro Monitor timeout
 
 import paho.mqtt.client as mqtt
@@ -43,7 +43,7 @@ logging.basicConfig(
     format='%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s',
     level=logging.INFO,
     datefmt='%Y-%m-%d %H:%M:%S')
-logging.info("""Northcliff_Environment_Monitor.py - Combined enviro+ sensor capture, external sensor capture, Luftdaten and Home Manager Updates and display of readings.
+logging.info("""Northcliff_Environment_Monitor.py 4.39 - Combined enviro+ sensor capture, external sensor capture, Luftdaten and Home Manager Updates and display of readings.
 #Press Ctrl+C to exit!
 
 #Note: you'll need to register with Luftdaten at:
@@ -81,6 +81,7 @@ def retrieve_config():
         print('Config Retrieval Failed')
     temp_offset = parsed_config_parameters['temp_offset']
     altitude = parsed_config_parameters['altitude']
+    enable_display = parsed_config_parameters['enable_display'] # Enables the display and flags that the weather protection cover is used with different temp/hum compensation
     enable_adafruit_io = parsed_config_parameters['enable_adafruit_io']
     aio_user_name = parsed_config_parameters['aio_user_name']
     aio_key = parsed_config_parameters['aio_key']
@@ -107,7 +108,7 @@ def retrieve_config():
     city_name = parsed_config_parameters['city_name']
     time_zone = parsed_config_parameters['time_zone']
     custom_locations = parsed_config_parameters['custom_locations']
-    return (temp_offset, altitude, enable_adafruit_io, aio_user_name, aio_key, aio_feed_window, aio_feed_sequence,
+    return (temp_offset, altitude, enable_display, enable_adafruit_io, aio_user_name, aio_key, aio_feed_window, aio_feed_sequence,
             aio_household_prefix, aio_location_prefix, aio_package, enable_send_data_to_homemanager,
             enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality,
             mqtt_broker_name, enable_luftdaten, enable_climate_and_gas_logging, enable_particle_sensor,
@@ -115,7 +116,7 @@ def retrieve_config():
             indoor_outdoor_function, mqtt_client_name, outdoor_mqtt_topic, indoor_mqtt_topic, city_name, time_zone, custom_locations)
 
 # Config Setup
-(temp_offset, altitude, enable_adafruit_io, aio_user_name, aio_key, aio_feed_window, aio_feed_sequence,
+(temp_offset, altitude, enable_display, enable_adafruit_io, aio_user_name, aio_key, aio_feed_window, aio_feed_sequence,
   aio_household_prefix, aio_location_prefix, aio_package, enable_send_data_to_homemanager,
   enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality, mqtt_broker_name,
   enable_luftdaten, enable_climate_and_gas_logging,  enable_particle_sensor, incoming_temp_hum_mqtt_topic,
@@ -167,7 +168,7 @@ def read_pm_values(luft_values, mqtt_values, own_data, own_disp_values):
     return(luft_values, mqtt_values, own_data, own_disp_values)
 
 # Read gas and climate values from Home Manager and /or BME280 
-def read_climate_gas_values(luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values, gas_r0_calibration_after_warmup_completed, gas_calib_temp, gas_calib_hum, gas_calib_bar, altitude):
+def read_climate_gas_values(luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values, gas_sensors_warm, gas_calib_temp, gas_calib_hum, gas_calib_bar, altitude):
     raw_temp, comp_temp = adjusted_temperature()
     raw_hum, comp_hum = adjusted_humidity()
     current_time = time.time()
@@ -224,7 +225,7 @@ def read_climate_gas_values(luft_values, mqtt_values, own_data, maxi_temp, mini_
         # Remove altitude compensation from external barometer because Lufdaten does its own altitude air pressure compensation
         luft_values["pressure"] = "{:.2f}".format(float(es.barometer) / barometer_altitude_comp_factor(altitude, own_data["Temp"][1]) * 100)
         print("Luft Bar:", luft_values["pressure"], "Comp Bar:", own_data["Bar"][1])
-    red_in_ppm, oxi_in_ppm, nh3_in_ppm, comp_red_rs, comp_oxi_rs, comp_nh3_rs, raw_red_rs, raw_oxi_rs, raw_nh3_rs = read_gas_in_ppm(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer, gas_r0_calibration_after_warmup_completed)
+    red_in_ppm, oxi_in_ppm, nh3_in_ppm, comp_red_rs, comp_oxi_rs, comp_nh3_rs, raw_red_rs, raw_oxi_rs, raw_nh3_rs = read_gas_in_ppm(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer, gas_sensors_warm)
     own_data["Red"][1] = round(red_in_ppm, 2)
     own_disp_values["Red"] = own_disp_values["Red"][1:] + [[own_data["Red"][1], 1]]
     mqtt_values["Red"] = own_data["Red"][1]
@@ -234,7 +235,7 @@ def read_climate_gas_values(luft_values, mqtt_values, own_data, maxi_temp, mini_
     own_data["NH3"][1] = round(nh3_in_ppm, 2)
     own_disp_values["NH3"] = own_disp_values["NH3"][1:] + [[own_data["NH3"][1], 1]]
     mqtt_values["NH3"] = own_data["NH3"][1]
-    mqtt_values["Gas Calibrated"] = gas_r0_calibration_after_warmup_completed
+    mqtt_values["Gas Calibrated"] = gas_sensors_warm
     proximity = ltr559.get_proximity()
     if proximity < 500:
         own_data["Lux"][1] = round(ltr559.get_lux(), 1)
@@ -255,8 +256,8 @@ def read_raw_gas():
     raw_nh3_rs = round(gas_data.nh3, 0)
     return raw_red_rs, raw_oxi_rs, raw_nh3_rs
     
-def read_gas_in_ppm(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer, gas_r0_calibration_after_warmup_completed):
-    if gas_r0_calibration_after_warmup_completed:
+def read_gas_in_ppm(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer, gas_sensors_warm):
+    if gas_sensors_warm:
         comp_red_rs, comp_oxi_rs, comp_nh3_rs, raw_red_rs, raw_oxi_rs, raw_nh3_rs = comp_gas(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer)
         print("Reading Compensated Gas sensors after warmup completed")
     else:
@@ -296,8 +297,7 @@ def comp_gas(gas_calib_temp, gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, ra
     comp_nh3_rs = round(raw_nh3_rs - (nh3_temp_comp_factor * gas_temp_diff + nh3_hum_comp_factor * gas_hum_diff + nh3_bar_comp_factor * gas_bar_diff), 0)
     print("Gas Compensation. Raw Red Rs:", raw_red_rs, "Comp Red Rs:", comp_red_rs, "Raw Oxi Rs:", raw_oxi_rs, "Comp Oxi Rs:", comp_oxi_rs,
           "Raw NH3 Rs:", raw_nh3_rs, "Comp NH3 Rs:", comp_nh3_rs)
-    return comp_red_rs, comp_oxi_rs, comp_nh3_rs, raw_red_rs, raw_oxi_rs, raw_nh3_rs
-    
+    return comp_red_rs, comp_oxi_rs, comp_nh3_rs, raw_red_rs, raw_oxi_rs, raw_nh3_rs   
     
 def adjusted_temperature():
     raw_temp = bme280.get_temperature()
@@ -342,7 +342,25 @@ def log_climate_and_gas(run_time, own_data, raw_red_rs, raw_oxi_rs, raw_nh3_rs, 
     with open('<Your environment log file location>', 'a') as f:
         f.write(',\n' + json.dumps(environment_log_data))
 
-
+# Calculate AQI Level
+def max_aqi_level_factor(gas_sensors_warm, air_quality_data, air_quality_data_no_gas, data):
+    max_aqi_level = 0
+    max_aqi_factor = 'All'
+    max_aqi = [max_aqi_factor, max_aqi_level]
+    if gas_sensors_warm:
+        aqi_data = air_quality_data
+    else:
+        aqi_data = air_quality_data_no_gas
+    for aqi_factor in aqi_data:
+        aqi_factor_level = 0
+        thresholds = data[aqi_factor][2]
+        for level in range(len(thresholds)):
+            if data[aqi_factor][1] > thresholds[level]:
+                aqi_factor_level = level + 1
+        if aqi_factor_level > max_aqi[1]:
+            max_aqi = [aqi_factor, aqi_factor_level]
+    return max_aqi
+        
 # Get Raspberry Pi serial number to use as ID
 def get_serial_number():
     with open('/proc/cpuinfo', 'r') as f:
@@ -369,6 +387,22 @@ def display_error(message):
     y = (HEIGHT / 2) - (size_y / 2)
     draw.rectangle((0, 0, 160, 80), back_colour)
     draw.text((x, y), error_message, font=mediumfont, fill=text_colour)
+    disp.display(img)
+
+# Display the Raspberry Pi serial number on a background colour based on the air quality level
+def disabled_display(gas_sensors_warm, air_quality_data, air_quality_data_no_gas, data, palette):
+    max_aqi = max_aqi_level_factor(gas_sensors_warm, air_quality_data, air_quality_data_no_gas, data)
+    back_colour = palette[max_aqi[1]]
+    text_colour = (255, 255, 255)
+    id = get_serial_number()
+    message = "{}".format(id)
+    img = Image.new('RGB', (WIDTH, HEIGHT), color=(0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    size_x, size_y = draw.textsize(message, mediumfont)
+    x = (WIDTH - size_x) / 2
+    y = (HEIGHT / 2) - (size_y / 2)
+    draw.rectangle((0, 0, 160, 80), back_colour)
+    draw.text((x, y), message, font=mediumfont, fill=text_colour)
     disp.display(img)
     
 # Display Raspberry Pi serial and Wi-Fi status on LCD
@@ -423,6 +457,7 @@ def send_data_to_aio(feed_key, data):
             resp_error = True
             reason = 'Response Error: ' + str(response.status_code)
             print('aio ', reason)
+    return not resp_error
 
 def send_to_luftdaten(luft_values, id, enable_particle_sensor):
     print("Sending Data to Luftdaten")
@@ -508,15 +543,15 @@ def on_message(client, userdata, msg):
         es.capture_barometer(parsed_json['svalue'])
     if enable_indoor_outdoor_functionality and indoor_outdoor_function == 'Indoor' and msg.topic == outdoor_mqtt_topic:
         capture_outdoor_data(parsed_json)
-        
-    
+            
 def capture_outdoor_data(parsed_json):
     global outdoor_reading_captured
+    global outdoor_reading_captured_time
     global outdoor_data
     global outdoor_maxi_temp
     global outdoor_mini_temp
     global outdoor_disp_values
-    global outdoor_gas_r0_calibration_after_warmup_completed
+    global outdoor_gas_sensors_warm
     for reading in outdoor_data:
         if reading == "Bar" or reading == "Hum": # Barometer and Humidity readings have their data in lists
             outdoor_data[reading][1] = parsed_json[reading][0]
@@ -525,10 +560,11 @@ def capture_outdoor_data(parsed_json):
         outdoor_disp_values[reading] = outdoor_disp_values[reading][1:] + [[outdoor_data[reading][1], 1]]
     outdoor_maxi_temp = parsed_json["Max Temp"]
     outdoor_mini_temp = parsed_json["Min Temp"]
-    outdoor_gas_r0_calibration_after_warmup_completed = parsed_json["Gas Calibrated"]
+    outdoor_gas_sensors_warm = parsed_json["Gas Calibrated"]
     outdoor_reading_captured = True
+    outdoor_reading_captured_time = time.time()
     
-# Displays data and text on the 0.96" LCD
+# Displays graphed data and text on the 0.96" LCD
 def display_graphed_data(location, disp_values, variable, data, WIDTH):
     # Scale the received disp_values for the variable between 0 and 1
     received_disp_values = [disp_values[variable][v][0]*disp_values[variable][v][1] for v in range(len(disp_values[variable]))]
@@ -587,7 +623,7 @@ def display_forecast(valid_barometer_history, forecast, barometer_available_time
     draw.text((x, y), message, font=mediumfont, fill=text_colour)
     disp.display(img)
     
-# Displays all the text on the 0.96" LCD
+# Displays all the air quality text on the 0.96" LCD
 def display_all_aq(location, data, data_in_display_all_aq):
     draw.rectangle((0, 0, WIDTH, HEIGHT), (0, 0, 0))
     column_count = 2
@@ -614,53 +650,61 @@ def display_all_aq(location, data, data_in_display_all_aq):
 
 def display_results(start_current_display, current_display_is_own, display_modes, indoor_outdoor_display_duration, own_data, data_in_display_all_aq, outdoor_data, outdoor_reading_captured,
                     own_disp_values, outdoor_disp_values, delay, last_page, mode, luft_values, mqtt_values, WIDTH, valid_barometer_history, forecast,
-                    barometer_available_time, barometer_change, barometer_trend, icon_forecast, maxi_temp, mini_temp,
-                    gas_r0_calibration_after_warmup_completed, outdoor_gas_r0_calibration_after_warmup_completed):
-    proximity = ltr559.get_proximity()
-    # If the proximity crosses the threshold, toggle the mode
-    if proximity > 1500 and time.time() - last_page > delay:
-        mode += 1
-        mode %= len(display_modes)
-        print('Mode', mode)
-        last_page = time.time()
-    selected_display_mode = display_modes[mode]
-    if enable_indoor_outdoor_functionality and indoor_outdoor_function == 'Indoor':
-        if ((time.time() -  start_current_display) > indoor_outdoor_display_duration) and outdoor_reading_captured:
-            current_display_is_own = not current_display_is_own
-            start_current_display = time.time()
-    if selected_display_mode in own_data:
-        if current_display_is_own and indoor_outdoor_function == 'Indoor' or selected_display_mode == "Bar":
-            display_graphed_data('IN', own_disp_values, selected_display_mode, own_data[selected_display_mode], WIDTH)
-        elif current_display_is_own and indoor_outdoor_function == 'Outdoor':
-            display_graphed_data('OUT', own_disp_values, selected_display_mode, own_data[selected_display_mode], WIDTH)
+                    barometer_available_time, barometer_change, barometer_trend, icon_forecast, maxi_temp, mini_temp, air_quality_data, air_quality_data_no_gas,
+                    gas_sensors_warm, outdoor_gas_sensors_warm, enable_display, palette):
+    # Allow for display selection if display is enabled, else only display the serial number on a background colour based on max_aqi
+    if enable_display:
+        proximity = ltr559.get_proximity()
+        # If the proximity crosses the threshold, toggle the mode
+        if proximity > 1500 and time.time() - last_page > delay:
+            mode += 1
+            mode %= len(display_modes)
+            print('Mode', mode)
+        selected_display_mode = display_modes[mode]
+        if enable_indoor_outdoor_functionality and indoor_outdoor_function == 'Indoor':
+            if outdoor_reading_captured:
+                if ((time.time() -  start_current_display) > indoor_outdoor_display_duration):
+                    current_display_is_own = not current_display_is_own
+                    start_current_display = time.time()
+            else:
+                current_display_is_own = True
+        if selected_display_mode in own_data:
+            if current_display_is_own and indoor_outdoor_function == 'Indoor' or selected_display_mode == "Bar":
+                display_graphed_data('IN', own_disp_values, selected_display_mode, own_data[selected_display_mode], WIDTH)
+            elif current_display_is_own and indoor_outdoor_function == 'Outdoor':
+                display_graphed_data('OUT', own_disp_values, selected_display_mode, own_data[selected_display_mode], WIDTH)
+            else:
+                display_graphed_data('OUT', outdoor_disp_values, selected_display_mode, outdoor_data[selected_display_mode], WIDTH)
+        elif selected_display_mode == "Forecast":
+            display_forecast(valid_barometer_history, forecast, barometer_available_time, own_data["Bar"][1], barometer_change)
+        elif selected_display_mode == "Status":
+            display_status()
+        elif selected_display_mode == "All Air":
+            # Display everything on one screen
+            if current_display_is_own and indoor_outdoor_function == 'Indoor':
+                display_all_aq('IN', own_data, data_in_display_all_aq)
+            elif current_display_is_own and indoor_outdoor_function == 'Outdoor':
+                display_all_aq('OUT', own_data, data_in_display_all_aq)
+            else:
+                display_all_aq('OUT', outdoor_data, data_in_display_all_aq)
+        elif selected_display_mode == "Icon Weather":
+            # Display icon weather/aqi
+            if current_display_is_own and indoor_outdoor_function == 'Indoor':
+                display_icon_weather_aqi('IN', own_data, barometer_trend, icon_forecast, maxi_temp, mini_temp, air_quality_data,
+                                         air_quality_data_no_gas, icon_air_quality_levels, gas_sensors_warm)
+            elif current_display_is_own and indoor_outdoor_function == 'Outdoor':
+                display_icon_weather_aqi('OUT', own_data, barometer_trend, icon_forecast, maxi_temp, mini_temp, air_quality_data,
+                                         air_quality_data_no_gas, icon_air_quality_levels, gas_sensors_warm)
+            else:
+                display_icon_weather_aqi('OUT', outdoor_data, barometer_trend, icon_forecast, outdoor_maxi_temp, outdoor_mini_temp,
+                                         air_quality_data, air_quality_data_no_gas, icon_air_quality_levels, outdoor_gas_sensors_warm)
         else:
-            display_graphed_data('OUT', outdoor_disp_values, selected_display_mode, outdoor_data[selected_display_mode], WIDTH)
-    elif selected_display_mode == "Forecast":
-        display_forecast(valid_barometer_history, forecast, barometer_available_time, own_data["Bar"][1], barometer_change)
-    elif selected_display_mode == "Status":
-        display_status()
-    elif selected_display_mode == "All Air":
-        # Display everything on one screen
-        if current_display_is_own and indoor_outdoor_function == 'Indoor':
-            display_all_aq('IN', own_data, data_in_display_all_aq)
-        elif current_display_is_own and indoor_outdoor_function == 'Outdoor':
-            display_all_aq('OUT', own_data, data_in_display_all_aq)
-        else:
-            display_all_aq('OUT', outdoor_data, data_in_display_all_aq)
-    elif selected_display_mode == "Icon Weather":
-        # Display icon weather/aqi
-        if current_display_is_own and indoor_outdoor_function == 'Indoor':
-            display_icon_weather_aqi('IN', own_data, barometer_trend, icon_forecast, maxi_temp, mini_temp, air_quality_data,
-                                     air_quality_data_no_gas, icon_air_quality_levels, gas_r0_calibration_after_warmup_completed)
-        elif current_display_is_own and indoor_outdoor_function == 'Outdoor':
-            display_icon_weather_aqi('OUT', own_data, barometer_trend, icon_forecast, maxi_temp, mini_temp, air_quality_data,
-                                     air_quality_data_no_gas, icon_air_quality_levels, gas_r0_calibration_after_warmup_completed)
-        else:
-            display_icon_weather_aqi('OUT', outdoor_data, barometer_trend, icon_forecast, outdoor_maxi_temp, outdoor_mini_temp,
-                                     air_quality_data, air_quality_data_no_gas, icon_air_quality_levels, outdoor_gas_r0_calibration_after_warmup_completed)
+            pass
     else:
-        pass
+        disabled_display(gas_sensors_warm, air_quality_data, air_quality_data_no_gas, own_data, palette)
+    last_page = time.time()
     return last_page, mode, start_current_display, current_display_is_own
+
 
 class ExternalSensors(object): # Handles the external temp/hum sensors
     def __init__(self):
@@ -872,6 +916,7 @@ def analyse_barometer(barometer_change, barometer):
     print('3 hour barometer change is '+str(round(barometer_change,1))+' millibars with a current reading of '+str(round(barometer,1))+' millibars. The weather forecast is '+forecast) 
     return forecast, icon_forecast, domoticz_forecast, aio_forecast
 
+# Icon Display Methods
 def calculate_y_pos(x, centre):
     """Calculates the y-coordinate on a parabolic curve, given x."""
     centre = 80
@@ -891,41 +936,25 @@ def circle_coordinates(x, y, radius):
     return (x1, y1, x2, y2)
 
 
-def map_colour(x, centre, start_hue, end_hue, day):
-    """Given an x coordinate and a centre point, a start and end hue (in degrees),
+def map_colour(x, centre, icon_aqi_level, day):
+    """Given an x coordinate and a centre point, an aqi hue (in degrees),
        and a Boolean for day or night (day is True, night False), calculate a colour
-       hue representing the 'colour' of that time of day."""
-
-    start_hue = start_hue / 360  # Rescale to between 0 and 1
-    end_hue = end_hue / 360
-
+       hue representing the 'colour' of that aqi level."""
     sat = 1.0
-
     # Dim the brightness as you move from the centre to the edges
     val = 1 - (abs(centre - x) / (2 * centre))
-
-    # Ramp up towards centre, then back down
-    if x > centre:
-        x = (2 * centre) - x
-
-    # Calculate the hue
-    hue = start_hue + ((x / centre) * (end_hue - start_hue))
-
-    # At night, move towards purple/blue hues and reverse dimming
+    # Select the hue based on the max aqi level and rescale between 0 and 1
+    hue = icon_background_hue[icon_aqi_level]/360
+    # Reverse dimming at night
     if not day:
-        hue = 1 - hue
         val = 1 - val
-
     r, g, b = [int(c * 255) for c in colorsys.hsv_to_rgb(hue, sat, val)]
-
     return (r, g, b)
 
 
 def x_from_sun_moon_time(progress, period, x_range):
     """Recalculate/rescale an amount of progress through a time period."""
-
     x = int((progress / period) * x_range)
-
     return x
 
 
@@ -979,8 +1008,7 @@ def sun_moon_time(city_name, time_zone):
 
     return (progress, period, day, local_dt)
 
-
-def draw_background(progress, period, day):
+def draw_background(progress, period, day, icon_aqi_level):
     """Given an amount of progress through the day or night, draw the
        background colour and overlay a blurred sun/moon."""
 
@@ -996,7 +1024,7 @@ def draw_background(progress, period, day):
     y = calculate_y_pos(x, centre)
 
     # Background colour
-    background = map_colour(x, 80, mid_hue, day_hue, day)
+    background = map_colour(x, 80, icon_aqi_level, day)
 
     # New image for background colour
     img = Image.new('RGBA', (WIDTH, HEIGHT), color=background)
@@ -1008,13 +1036,12 @@ def draw_background(progress, period, day):
 
     # Draw the sun/moon
     circle = circle_coordinates(x, y, sun_radius)
-    overlay_draw.ellipse(circle, fill=(200, 200, 50, opacity))
+    overlay_draw.ellipse(circle, fill=(255, 255, 255, opacity))
 
     # Overlay the sun/moon on the background as an alpha matte
     composite = Image.alpha_composite(img, overlay).filter(ImageFilter.GaussianBlur(radius=blur))
 
     return composite
-
 
 def overlay_text(img, position, text, font, align_right=False, rectangle=False):
     draw = ImageDraw.Draw(img)
@@ -1048,11 +1075,15 @@ def describe_humidity(humidity):
         description = "dry"
     return description
 
-
 def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, maxi_temp, mini_temp, air_quality_data,
-                             air_quality_data_no_gas, icon_air_quality_levels, gas_sensors_warmed):
+                             air_quality_data_no_gas, icon_air_quality_levels, gas_sensors_warm):
     progress, period, day, local_dt = sun_moon_time(city_name, time_zone)
-    background = draw_background(progress, period, day)
+
+    # Calculate AQI
+    max_aqi = max_aqi_level_factor(gas_sensors_warm, air_quality_data, air_quality_data_no_gas, data)
+
+    # Background
+    background = draw_background(progress, period, day, max_aqi[1])
 
     # Time.
     date_string = local_dt.strftime("%d %b %y").lstrip('0')
@@ -1081,19 +1112,6 @@ def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, max
     img.paste(humidity_icon, (margin, 48), mask=humidity_icon)
                 
     # AQI
-    max_aqi = ['All', 0]
-    if gas_sensors_warmed:
-        aqi_data = air_quality_data
-    else:
-        aqi_data = air_quality_data_no_gas
-    for aqi_factor in aqi_data:
-        aqi_factor_level = 0
-        thresholds = data[aqi_factor][2]
-        for level in range(len(thresholds)):
-            if data[aqi_factor][1] > thresholds[level]:
-                aqi_factor_level = level + 1
-        if aqi_factor_level > max_aqi[1]:
-            max_aqi = [aqi_factor, aqi_factor_level]
     aqi_string = f"{max_aqi[1]}: {max_aqi[0]}"
     img = overlay_text(img, (WIDTH - margin, 18), aqi_string, font_smm, align_right=True)
     spacing = font_smm.getsize(aqi_string)[1] + 1
@@ -1117,52 +1135,49 @@ def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, max
     disp.display(img)
     
 def update_aio(mqtt_values, forecast, aio_format, aio_forecast_text_format, aio_forecast_icon_format, aio_air_quality_level_format,
-               air_quality_text_format, own_data, icon_air_quality_levels, aio_forecast, aio_package, air_quality_data, air_quality_data_no_gas,
-               previous_aio_air_quality_level, previous_aio_air_quality_text, previous_aio_forecast_text, previous_aio_forecast):
+               air_quality_text_format, own_data, icon_air_quality_levels, aio_forecast, aio_package, gas_sensors_warm, air_quality_data,
+               air_quality_data_no_gas, previous_aio_air_quality_level, previous_aio_air_quality_text, previous_aio_forecast_text, previous_aio_forecast):
+    aio_resp = False # Set to True when there is at least one successful aio feed response
     aio_json = {}
     aio_path = '/feeds/'
-    if mqtt_values['Gas Calibrated'] and aio_package == "Premium":
+    if gas_sensors_warm and aio_package == "Premium":
         print("Sending Premium package feeds to Adafruit IO with Gas Data")
-    elif mqtt_values['Gas Calibrated'] == False and aio_package == "Premium":
+    elif gas_sensors_warm == False and aio_package == "Premium":
         print("Sending Premium package feeds to Adafruit IO without Gas Data")
     else:
         print("Sending", aio_package, "package feeds to Adafruit IO")
     # Analyse air quality levels and combine into an overall air quality level based on own_data thesholds
-    combined_air_quality_level = 0
-    combined_air_quality_level_factor = 'All'
-    if mqtt_values['Gas Calibrated']: # Only use gas data if the gas sensors are warm and calibrated
-        air_quality_variables = air_quality_data
-    else:
-        air_quality_variables = air_quality_data_no_gas
-    for air_quality_factor in air_quality_variables:
-        air_quality_factor_level = 0
-        thresholds = own_data[air_quality_factor][2]
-        for level in range(len(thresholds)):
-            if mqtt_values[air_quality_factor] > thresholds[level]:
-                air_quality_factor_level = level + 1
-        if air_quality_factor_level > combined_air_quality_level:
-            combined_air_quality_level = air_quality_factor_level
-            combined_air_quality_level_factor = air_quality_factor 
+    max_aqi = max_aqi_level_factor(gas_sensors_warm, air_quality_data, air_quality_data_no_gas, own_data)
+    combined_air_quality_level_factor = max_aqi[0]
+    combined_air_quality_level = max_aqi[1]
     combined_air_quality_text = icon_air_quality_levels[combined_air_quality_level] + ": " + combined_air_quality_level_factor
     if combined_air_quality_level != previous_aio_air_quality_level: # Only update if it's changed
         print('Sending Air Quality Level Feed')
         aio_json['value'] = combined_air_quality_level
-        send_data_to_aio(aio_air_quality_level_format, combined_air_quality_level)  # Used by all aio packages
+        feed_resp = send_data_to_aio(aio_air_quality_level_format, combined_air_quality_level)  # Used by all aio packages
+        if feed_resp:
+            aio_resp = True
         previous_aio_air_quality_level = combined_air_quality_level
     if (aio_package == 'Premium' or aio_package == 'Basic Air') and combined_air_quality_text != previous_aio_air_quality_text: # Only update if it's changed
         print('Sending Air Quality Text Feed')
-        send_data_to_aio(aio_air_quality_text_format, combined_air_quality_text)
+        feed_resp = send_data_to_aio(aio_air_quality_text_format, combined_air_quality_text)
+        if feed_resp:
+            aio_resp = True
         previous_aio_air_quality_text = combined_air_quality_text
     if enable_indoor_outdoor_functionality == False or enable_indoor_outdoor_functionality and indoor_outdoor_function == "Outdoor":
         # If indoor_outdoor_functionality is enabled, only send the forecast from the outdoor unit and only if it's been updated
         aio_forecast_text = forecast.replace("\n", " ")
         if aio_package == 'Premium' and aio_forecast_text != previous_aio_forecast_text:
             print('Sending Weather Forecast Text Feed')
-            send_data_to_aio(aio_forecast_text_format, aio_forecast_text)
+            feed_resp = send_data_to_aio(aio_forecast_text_format, aio_forecast_text)
+            if feed_resp:
+                aio_resp = True
             previous_aio_forecast_text = aio_forecast_text
         if (aio_package == 'Premium' or aio_package == 'Basic Combo') and aio_forecast != previous_aio_forecast:
             print('Sending Weather Forecast Icon Feed')
-            send_data_to_aio(aio_forecast_icon_format, aio_forecast)
+            feed_resp = send_data_to_aio(aio_forecast_icon_format, aio_forecast)
+            if feed_resp:
+                aio_resp = True
             previous_aio_forecast = aio_forecast
     # Send other feeds
     for feed in aio_format: # aio_format varies, based on the relevant aio_package
@@ -1172,25 +1187,41 @@ def update_aio(mqtt_values, forecast, aio_format, aio_forecast_text_format, aio_
                 feed == "Bar" and enable_indoor_outdoor_functionality and indoor_outdoor_function == "Outdoor"):
                 # If indoor_outdoor_functionality is enabled, only send outdoor barometer feed
                 print('Sending', feed, 'Feed')
-                send_data_to_aio(aio_format[feed][0], mqtt_values[feed][0])
+                feed_resp = send_data_to_aio(aio_format[feed][0], mqtt_values[feed][0])
+                if feed_resp:
+                    aio_resp = True
         else: # Send the value if sending data other than humidity or barometer
             if (feed != "Red" and feed != "Oxi" and feed != "NH3") or mqtt_values['Gas Calibrated']: # Only send gas data if the gas sensors are warm and calibrated
                 print('Sending', feed, 'Feed')
-                send_data_to_aio(aio_format[feed][0], mqtt_values[feed])
-    return previous_aio_air_quality_level, previous_aio_air_quality_text, previous_aio_forecast_text, previous_aio_forecast
+                feed_resp = send_data_to_aio(aio_format[feed][0], mqtt_values[feed])
+                if feed_resp:
+                    aio_resp = True
+    return previous_aio_air_quality_level, previous_aio_air_quality_text, previous_aio_forecast_text, previous_aio_forecast, aio_resp
      
 # Compensation factors for temperature, humidity and air pressure
-# Cubic polynomial temp comp coefficients adjusted by config's temp_offset
-comp_temp_cub_a = -0.0001
-comp_temp_cub_b = 0.0037
-comp_temp_cub_c = 1.00568
-comp_temp_cub_d = -6.78291
-comp_temp_cub_d = comp_temp_cub_d + temp_offset
-# Quadratic polynomial hum comp coefficients
-comp_hum_quad_a = -0.0032
-comp_hum_quad_b = 1.6931
-comp_hum_quad_c = 0.9391
-# Gas Comp Factors: Change in Rs per degree C, percent humidity or hPa of pressure relative to baselines
+if enable_display: # Set temp and hum compensation when display is enabled (no weather protection cover in place)
+    # Cubic polynomial temp comp coefficients adjusted by config's temp_offset
+    comp_temp_cub_a = -0.0001
+    comp_temp_cub_b = 0.0037
+    comp_temp_cub_c = 1.00568
+    comp_temp_cub_d = -6.78291
+    comp_temp_cub_d = comp_temp_cub_d + temp_offset
+    # Quadratic polynomial hum comp coefficients
+    comp_hum_quad_a = -0.0032
+    comp_hum_quad_b = 1.6931
+    comp_hum_quad_c = 0.9391
+else: # Set temp and hum compensation when display is disabled (weather protection cover in place)
+    # Cubic polynomial temp comp coefficients adjusted by config's temp_offset
+    comp_temp_cub_a = -0.00028
+    comp_temp_cub_b = 0.01370
+    comp_temp_cub_c = 1.07037
+    comp_temp_cub_d = -12.35321
+    comp_temp_cub_d = comp_temp_cub_d + temp_offset
+    # Quadratic polynomial hum comp coefficients
+    comp_hum_quad_a = -0.0098
+    comp_hum_quad_b = 2.0705
+    comp_hum_quad_c = -1.2795
+# Gas Comp Factors: Change in Rs per raw temp degree C, raw percent humidity or hPa of raw air pressure relative to baselines
 red_temp_comp_factor = -5522
 red_hum_comp_factor = -3128
 red_bar_comp_factor = -915
@@ -1238,20 +1269,20 @@ message = ""
 icon_air_quality_levels = ['Great', 'OK', 'Alert', 'Poor', 'Bad']
 # Values that alter the look of the background
 blur = 50
-opacity = 125
-mid_hue = 0
-day_hue = 25
+opacity = 100
+icon_background_hue = [240, 120, 60, 39, 0]
 sun_radius = 50
 # Margins
 margin = 3
 
-# Create a own_data dict to store the data to be displayed in Display Everything
+# Create own_data dict to store the data to be displayed in Display Everything
 # Format: {Display Item: [Units, Current Value, [Level Thresholds], display_all_aq position]}
 own_data = {"P1": ["ug/m3", 0, [6,17,27,35], 0], "P2.5": ["ug/m3", 0, [11,35,53,70], 1], "P10": ["ug/m3", 0, [16,50,75,100], 2],
             "Oxi": ["ppm", 0, [0.5, 1, 3, 5], 3], "Red": ["ppm", 0, [5, 30, 50, 75], 4], "NH3": ["ppm", 0, [5, 30, 50, 75], 5],
             "Temp": ["C", 0, [10,16,28,35], 6], "Hum": ["%", 0, [20,40,60,90], 7], "Bar": ["hPa", 0, [250,650,1013,1015], 8],
             "Lux": ["Lux", 1, [-1,-1,30000,100000], 9]}
 data_in_display_all_aq =  ["P1", "P2.5", "P10", "Oxi", "Red", "NH3"]
+
 # Defines the order in which display modes are chosen
 display_modes = ["Icon Weather", "All Air", "P1", "P2.5", "P10", "Oxi", "Red", "NH3", "Forecast", "Temp", "Hum", "Bar", "Lux", "Status"]
 
@@ -1278,7 +1309,8 @@ air_quality_data_no_gas = ["P1", "P2.5", "P10"]
 current_display_is_own = True # Start with own display
 start_current_display = time.time()
 indoor_outdoor_display_duration = 5 # Seconds for duration of indoor or outdoor display
-outdoor_reading_captured = False # Used to determine whether the outdoor dispaly is ready.
+outdoor_reading_captured = False # Used to determine whether the outdoor display is ready
+outdoor_reading_captured_time = 0 # Used to determine the last time that an mqtt message was received from the outdoor sensor
 
 # Define your own threshold limits for Display Everything
 # The limits definition follows the order of the variables array
@@ -1295,11 +1327,11 @@ outdoor_reading_captured = False # Used to determine whether the outdoor dispaly
 # code in general leads to ANY DAMAGES or DEATH.
 
 # RGB palette for values on the combined screen
-palette = [(128,128,255),    # Very Low
-           (0,255,255),      # Low
-           (0,255,0),        # Moderate
-           (255,255,0),      # High
-           (255,0,0)]        # Very High
+palette = [(128,128,255),   # Very Low
+           (0,255,0),       # Low
+           (255,255,0),     # Moderate
+           (255,165,0),     # High
+           (255,0,0)]       # Very High
     
 luft_values = {} # To be sent to Luftdaten
 mqtt_values = {} # To be sent to Home Manager, outdoor to indoor unit communications and used for the Adafruit IO Feeds
@@ -1361,7 +1393,14 @@ if enable_adafruit_io:
         aio_forecast_icon_format = aio_household_prefix + "-weather-forecast-icon"
         aio_air_quality_level_format = aio_feed_prefix + "-air-quality-level"
     else:
-        print('Invalid Adafruit IO Package') 
+        print('Invalid Adafruit IO Package')
+
+# Set up comms error and failure flags
+luft_resp = True # Set to False when there is a Luftdaten comms error
+aio_resp = True # Set to False when there is an comms error on all Adafruit IO feeds
+successful_comms_time = time.time()
+comms_failure_tolerance = 3600 # Adjust this to set the comms failure duration before a reboot via the watchdog is triggered when both Luftdaten and Adafruit IO are enabled
+comms_failure = False # Set to True when there has been a comms failure on both Luftdaten and Adafruit IO
     
 # Take one reading from each climate and gas sensor on start up to stabilise readings
 first_temperature_reading = bme280.get_temperature()
@@ -1387,13 +1426,11 @@ print("Startup R0. Red R0:", round(red_r0, 0), "Oxi R0:", round(oxi_r0, 0), "NH3
 gas_calib_temp = first_temperature_reading
 gas_calib_hum = first_humidity_reading
 gas_calib_bar = first_pressure_reading
-gas_r0_calibration_after_warmup_completed = False
-outdoor_gas_r0_calibration_after_warmup_completed = False # Only used for an indoor unit when indoor/outdoor functionality is enabled
+gas_sensors_warm = False
+outdoor_gas_sensors_warm = False # Only used for an indoor unit when indoor/outdoor functionality is enabled
 mqtt_values["Gas Calibrated"] = False # Only set to true after the gas sensor warmup time has been completed
 gas_sensors_warmup_time = 6000
 gas_daily_r0_calibration_completed = False
-gas_daily_r0_calibration_hour = 3 # Adjust this to set the hour at which daily gas sensor calibrations are undertaken
-
 # Set up weather forecast
 first_climate_reading_done = False
 barometer_history = [0.00 for x in range (9)]
@@ -1405,6 +1442,8 @@ forecast = 'Insufficient Data'
 icon_forecast = 'Wait'
 domoticz_forecast = '0'
 aio_forecast = 'question'
+
+# Set up times
 short_update_time = 0 # Set the short update time baseline (for watchdog alive file and Luftdaten updates)
 short_update_delay = 150 # Time between short updates
 previous_aio_update_minute = None # Used to record the last minute that the aio feeds were updated
@@ -1412,6 +1451,7 @@ long_update_time = 0 # Set the long update time baseline (for all other updates)
 long_update_delay = 300 # Time between long updates
 startup_stabilisation_time = 300 # Time to allow sensor stabilisation before sending external updates
 start_time = time.time()
+gas_daily_r0_calibration_hour = 3 # Adjust this to set the hour at which daily gas sensor calibrations are undertaken
 barometer_available_time = start_time + 10945 # Initialise the time until a forecast is available (3 hours + the time taken before the first climate reading)
 mqtt_values["Bar"] = [gas_calib_bar, domoticz_forecast]
 domoticz_hum_map = {"good": "1", "dry": "2", "wet": "3"}
@@ -1419,6 +1459,7 @@ mqtt_values["Hum"] = [gas_calib_hum, domoticz_hum_map["good"]]
 path = os.path.dirname(os.path.realpath(__file__))
 # Check for a persistence data log and use it if it exists and was < 10 minutes ago
 persistent_data_log = {}
+    
 try:
     with open('<Your Persistent Data Log File Name Here>', 'r') as f:
         persistent_data_log = json.loads(f.read())
@@ -1438,7 +1479,7 @@ if "Update Time" in persistent_data_log and "Gas Calib Temp List" in persistent_
         icon_forecast = persistent_data_log["Icon Forecast"]
         domoticz_forecast = persistent_data_log["Domoticz Forecast"]
         aio_forecast = persistent_data_log["AIO Forecast"]
-        gas_r0_calibration_after_warmup_completed = persistent_data_log["Gas Sensors Warm"]
+        gas_sensors_warm = persistent_data_log["Gas Sensors Warm"]
         gas_calib_temp = persistent_data_log["Gas Temp"]
         gas_calib_hum = persistent_data_log["Gas Hum"]
         gas_calib_bar = persistent_data_log["Gas Bar"]
@@ -1466,8 +1507,10 @@ mqtt_values["Forecast"] = {"Valid": valid_barometer_history, "3 Hour Change": ro
 # Main loop to read data, display, and send to Luftdaten, HomeManager and Adafruit IO
 try:
     while True:       
+        # Read air particle values on every loop
         luft_values, mqtt_values, own_data, own_disp_values = read_pm_values(luft_values, mqtt_values, own_data, own_disp_values)
-        # Read climate values, provide external updates and write to watchdog file every 2.5 minutes.
+        
+        # Read climate values, provide external updates and write to watchdog file every 2.5 minutes (set by short_update_time).
         run_time = round((time.time() - start_time), 0)
         time_since_short_update = time.time() - short_update_time
         if time_since_short_update >= short_update_delay:
@@ -1476,36 +1519,73 @@ try:
              raw_temp, comp_temp, comp_hum, raw_hum, use_external_temp_hum,
              use_external_barometer, raw_barometer) = read_climate_gas_values(luft_values, mqtt_values, own_data,
                                                                               maxi_temp, mini_temp, own_disp_values,
-                                                                              gas_r0_calibration_after_warmup_completed,
+                                                                              gas_sensors_warm,
                                                                               gas_calib_temp, gas_calib_hum, gas_calib_bar, altitude)
             first_climate_reading_done = True
             print('Luftdaten Values', luft_values)
             print('mqtt Values', mqtt_values)
-            # Write to the watchdog file
-            with open('<Your Watchdog File Name Here>', 'w') as f:
-                f.write('Enviro Script Alive')
+            # Write to the watchdog file unless there is a comms failure for >= comms_failure_tolerance when both Luftdaten and Adafruit IO arenabled
+            if comms_failure == False:
+                with open('<Your Watchdog File Name Here>', 'w') as f:
+                    f.write('Enviro Script Alive')
             if enable_luftdaten: # Send data to Luftdaten if enabled
-                resp = send_to_luftdaten(luft_values, id, enable_particle_sensor)
-                logging.info("Luftdaten Response: {}\n".format("ok" if resp else "failed"))
+                luft_resp = send_to_luftdaten(luft_values, id, enable_particle_sensor)
+                #logging.info("Luftdaten Response: {}\n".format("ok" if luft_resp else "failed"))
                 data_sent_to_luftdaten_or_aio = True
+                if luft_resp:
+                    print("Luftdaten update successful. Waiting for next capture cycle")
+                else:
+                    print("Luftdaten update unsuccessful. Waiting for next capture cycle")
+            else:
                 print('Waiting for next capture cycle')
-        if run_time > startup_stabilisation_time: # Wait until the sensors have stabilised before providing external updates or data logging
-            if enable_adafruit_io and aio_format != {}: # Send data to Adafruit IO if enabled, set up and the time is now within the configured window and sequence
+                
+        # Read and update the barometer log if the first climate reading has been done and the last update was >= 20 minutes ago
+        if first_climate_reading_done and (time.time() - barometer_log_time) >= 1200:
+            if barometer_log_time == 0: # If this is the first barometer log, record the time that a forecast will be available (3 hours)
+                barometer_available_time = time.time() + 10800
+            barometer_history, barometer_change, valid_barometer_history, barometer_log_time, forecast, barometer_trend, icon_forecast, domoticz_forecast, aio_forecast = log_barometer(own_data['Bar'][1], barometer_history)
+            mqtt_values["Forecast"] = {"Valid": valid_barometer_history, "3 Hour Change": round(barometer_change, 1), "Forecast": forecast.replace("\n", " ")}
+            mqtt_values["Bar"][1] = domoticz_forecast # Add Domoticz Weather Forecast
+            print('Barometer Logged. Waiting for next capture cycle')
+
+        # Update Display on every loop
+        last_page, mode, start_current_display, current_display_is_own = display_results(start_current_display, current_display_is_own, display_modes,
+                                                                                         indoor_outdoor_display_duration, own_data,
+                                                                                         data_in_display_all_aq, outdoor_data,
+                                                                                         outdoor_reading_captured, own_disp_values,
+                                                                                         outdoor_disp_values, delay, last_page, mode,
+                                                                                         luft_values, mqtt_values, WIDTH,
+                                                                                         valid_barometer_history, forecast,
+                                                                                         barometer_available_time, barometer_change,
+                                                                                         barometer_trend, icon_forecast, maxi_temp,
+                                                                                         mini_temp, air_quality_data, air_quality_data_no_gas,
+                                                                                         gas_sensors_warm,
+                                                                                         outdoor_gas_sensors_warm, enable_display, palette)
+
+        # Provide external updates and update persistent data log
+        if run_time > startup_stabilisation_time: # Wait until the gas sensors have stabilised before providing external updates or updating the persistent data log
+            # Send data to Adafruit IO if enabled, set up and the time is now within the configured window and sequence
+            if enable_adafruit_io and aio_format != {}:
                 today=datetime.now()
                 window_minute = int(today.strftime('%M'))
                 window_second = int(today.strftime('%S'))
                 if window_minute % 10 == aio_feed_window and window_second // 15 == aio_feed_sequence and window_minute != previous_aio_update_minute:
-                    previous_aio_air_quality_level, previous_aio_air_quality_text, previous_aio_forecast_text, previous_aio_forecast = update_aio(mqtt_values, forecast, aio_format, aio_forecast_text_format,
-                                                                                                                                                        aio_forecast_icon_format, aio_air_quality_level_format,
-                                                                                                                                                        aio_air_quality_text_format, own_data, icon_air_quality_levels,
-                                                                                                                                                        aio_forecast, aio_package, air_quality_data, air_quality_data_no_gas,
-                                                                                                                                                        previous_aio_air_quality_level, previous_aio_air_quality_text,
-                                                                                                                                                        previous_aio_forecast_text, previous_aio_forecast)
+                    previous_aio_air_quality_level, previous_aio_air_quality_text, previous_aio_forecast_text, previous_aio_forecast, aio_resp = update_aio(mqtt_values, forecast, aio_format, aio_forecast_text_format,
+                                                                                                                                                  aio_forecast_icon_format, aio_air_quality_level_format,
+                                                                                                                                                  aio_air_quality_text_format, own_data, icon_air_quality_levels,
+                                                                                                                                                  aio_forecast, aio_package, gas_sensors_warm, air_quality_data,
+                                                                                                                                                  air_quality_data_no_gas, previous_aio_air_quality_level,
+                                                                                                                                                  previous_aio_air_quality_text,previous_aio_forecast_text,
+                                                                                                                                                  previous_aio_forecast)
                     data_sent_to_luftdaten_or_aio = True
                     previous_aio_update_minute = window_minute
-                    print('Waiting for next capture cycle')
+                    if aio_resp:
+                        print("At least one Adafruit IO feed successful. Waiting for next capture cycle")
+                    else:
+                        print("No Adafruit IO feeds successful. Waiting for next capture cycle")
             time_since_long_update = time.time() - long_update_time
-            if time_since_long_update >= long_update_delay: # Provide other external updates and update persistent data log every 5 minutes
+            # Provide other external updates and update persistent data log every 5 minutes (Set by long_update_delay)
+            if time_since_long_update >= long_update_delay:
                 long_update_time = time.time()
                 if (indoor_outdoor_function == 'Indoor' and enable_send_data_to_homemanager):
                     client.publish(indoor_mqtt_topic, json.dumps(mqtt_values))
@@ -1520,7 +1600,7 @@ try:
                 persistent_data_log = {"Update Time": long_update_time, "Barometer Log Time": barometer_log_time, "Forecast": forecast, "Barometer Available Time": barometer_available_time,
                                        "Valid Barometer History": valid_barometer_history, "Barometer History": barometer_history, "Barometer Change": barometer_change,
                                        "Barometer Trend": barometer_trend, "Icon Forecast": icon_forecast, "Domoticz Forecast": domoticz_forecast,
-                                       "AIO Forecast": aio_forecast, "Gas Sensors Warm": gas_r0_calibration_after_warmup_completed, "Gas Temp": gas_calib_temp,
+                                       "AIO Forecast": aio_forecast, "Gas Sensors Warm": gas_sensors_warm, "Gas Temp": gas_calib_temp,
                                        "Gas Hum": gas_calib_hum, "Gas Bar": gas_calib_bar, "Red R0": red_r0, "Oxi R0": oxi_r0, "NH3 R0": nh3_r0,
                                        "Red R0 List": reds_r0, "Oxi R0 List": oxis_r0, "NH3 R0 List": nh3s_r0, "Gas Calib Temp List": gas_calib_temps,
                                        "Gas Calib Hum List": gas_calib_hums, "Gas Calib Bar List": gas_calib_bars, "Own Disp Values": own_disp_values,
@@ -1531,24 +1611,17 @@ try:
                 if "Forecast" in mqtt_values:
                     mqtt_values.pop("Forecast") # Remove Forecast after sending it to home manager so that forecast data is only sent when updated
                 print('Waiting for next capture cycle')
-        if first_climate_reading_done and (time.time() - barometer_log_time) >= 1200: # Read and update the barometer log if the first climate reading has been done and the last update was >= 20 minutes ago
-            if barometer_log_time == 0: # If this is the first barometer log, record the time that a forecast will be available (3 hours)
-                barometer_available_time = time.time() + 10800
-            barometer_history, barometer_change, valid_barometer_history, barometer_log_time, forecast, barometer_trend, icon_forecast, domoticz_forecast, aio_forecast = log_barometer(own_data['Bar'][1], barometer_history)
-            mqtt_values["Forecast"] = {"Valid": valid_barometer_history, "3 Hour Change": round(barometer_change, 1), "Forecast": forecast.replace("\n", " ")}
-            mqtt_values["Bar"][1] = domoticz_forecast # Add Domoticz Weather Forecast
-        last_page, mode, start_current_display, current_display_is_own = display_results(start_current_display, current_display_is_own, display_modes,
-                                                                                                              indoor_outdoor_display_duration, own_data,
-                                                                                                              data_in_display_all_aq, outdoor_data,
-                                                                                                              outdoor_reading_captured, own_disp_values,
-                                                                                                              outdoor_disp_values, delay, last_page, mode,
-                                                                                                              luft_values, mqtt_values, WIDTH,
-                                                                                                              valid_barometer_history, forecast,
-                                                                                                              barometer_available_time, barometer_change,
-                                                                                                              barometer_trend, icon_forecast, maxi_temp,
-                                                                                                              mini_temp, gas_r0_calibration_after_warmup_completed,
-                                                                                                              outdoor_gas_r0_calibration_after_warmup_completed)
-        if ((time.time() - start_time) > gas_sensors_warmup_time) and gas_r0_calibration_after_warmup_completed == False: # Calibrate gas sensors after warmup
+        # Luftdaten and Adafruit IO Communications Check
+        if aio_resp or luft_resp: # Set time when a successful Luftdaten or Adafruit IO response is received, or if either Luftdaten or Adafruit IO is disabled
+            successful_comms_time = time.time() 
+        if time.time() - successful_comms_time >= comms_failure_tolerance:
+            comms_failure = True
+            print("Both Lufdaten and Adafruit IO communications have been lost for more than " + str(int(comms_failure_tolerance/60)) + " minutes. System will reboot via watchdog")
+        # Outdoor Sensor Comms Check
+        if time.time() - outdoor_reading_captured_time > long_update_delay * 2:
+            outdoor_reading_captured = False # Reset outdoor reading captured flag if comms with the outdoor sensor is lost so that old outdoor data is not displayed
+        # Calibrate gas sensors after warmup
+        if ((time.time() - start_time) > gas_sensors_warmup_time) and gas_sensors_warm == False:
             gas_calib_temp = raw_temp
             gas_calib_hum = raw_hum
             gas_calib_bar = raw_barometer
@@ -1561,11 +1634,13 @@ try:
             gas_calib_temps = [gas_calib_temp] * 7
             gas_calib_hums = [gas_calib_hum] * 7
             gas_calib_bars = [gas_calib_bar] * 7
-            gas_r0_calibration_after_warmup_completed = True
-        # Calibrate gas sensors daily, using average of daily readings over a week if not already done in the current day and if warmup calibration is completed
+            gas_sensors_warm = True
+            
+        # Calibrate gas sensors daily at time set by gas_daily_r0_calibration_hour,
+        # using average of daily readings over a week if not already done in the current day and if warmup calibration is completed
         # Compensates for gas sensor drift over time
         today=datetime.now()
-        if int(today.strftime('%H')) == gas_daily_r0_calibration_hour and gas_daily_r0_calibration_completed == False and gas_r0_calibration_after_warmup_completed and first_climate_reading_done:
+        if int(today.strftime('%H')) == gas_daily_r0_calibration_hour and gas_daily_r0_calibration_completed == False and gas_sensors_warm and first_climate_reading_done:
             print("Daily Gas Sensor Calibration. Old R0s. Red R0:", red_r0, "Oxi R0:", oxi_r0, "NH3 R0:", nh3_r0)
             print("Old Calibration Baseline. Temp:", round(gas_calib_temp, 1), "Hum:", round(gas_calib_hum, 0), "Barometer:", round(gas_calib_bar, 1)) 
             # Set new calibration baseline using 7 day rolling average
@@ -1595,7 +1670,9 @@ try:
             gas_daily_r0_calibration_completed = True
         if int(today.strftime('%H')) == (gas_daily_r0_calibration_hour + 1) and gas_daily_r0_calibration_completed:
             gas_daily_r0_calibration_completed = False
-        if data_sent_to_luftdaten_or_aio == False: # Only delay the loop if no Luftdaten or Adafruit IO data has been sent
+
+        # Only add a delay in the loop if no Luftdaten or Adafruit IO data has been sent
+        if data_sent_to_luftdaten_or_aio == False:
             time.sleep(0.5)
         else:
             data_sent_to_luftdaten_or_aio = False # Reset data_sent_to_luftdaten_or_aio flag until Luftdaten or Adafruit IO data has been sent again
