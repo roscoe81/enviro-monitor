@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 4.39 - Gen
-# Requires Home Manager >=8.54 with Enviro Monitor timeout
+#Northcliff Environment Monitor - 4.41 - Gen
 
 import paho.mqtt.client as mqtt
 import colorsys
@@ -43,7 +42,7 @@ logging.basicConfig(
     format='%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s',
     level=logging.INFO,
     datefmt='%Y-%m-%d %H:%M:%S')
-logging.info("""Northcliff_Environment_Monitor.py 4.39 - Combined enviro+ sensor capture, external sensor capture, Luftdaten and Home Manager Updates and display of readings.
+logging.info("""Northcliff_Environment_Monitor.py 4.41 - Combined enviro+ sensor capture, external sensor capture, Luftdaten and Home Manager Updates and display of readings.
 #Press Ctrl+C to exit!
 
 #Note: you'll need to register with Luftdaten at:
@@ -920,7 +919,7 @@ def analyse_barometer(barometer_change, barometer):
 def calculate_y_pos(x, centre):
     """Calculates the y-coordinate on a parabolic curve, given x."""
     centre = 80
-    y = 1 / centre * (x - centre) ** 2
+    y = 1 / centre * (x - centre) ** 2 + sun_radius
 
     return int(y)
 
@@ -942,12 +941,13 @@ def map_colour(x, centre, icon_aqi_level, day):
        hue representing the 'colour' of that aqi level."""
     sat = 1.0
     # Dim the brightness as you move from the centre to the edges
-    val = 1 - (abs(centre - x) / (2 * centre))
+    val = 0.8 - 0.6 * (abs(centre - x) / (2 * centre))
     # Select the hue based on the max aqi level and rescale between 0 and 1
     hue = icon_background_hue[icon_aqi_level]/360
     # Reverse dimming at night
     if not day:
         val = 1 - val
+    #print(day, x, hue, sat, val)
     r, g, b = [int(c * 255) for c in colorsys.hsv_to_rgb(hue, sat, val)]
     return (r, g, b)
 
@@ -1025,6 +1025,7 @@ def draw_background(progress, period, day, icon_aqi_level):
 
     # Background colour
     background = map_colour(x, 80, icon_aqi_level, day)
+    
 
     # New image for background colour
     img = Image.new('RGBA', (WIDTH, HEIGHT), color=background)
@@ -1036,9 +1037,10 @@ def draw_background(progress, period, day, icon_aqi_level):
 
     # Draw the sun/moon
     circle = circle_coordinates(x, y, sun_radius)
-    overlay_draw.ellipse(circle, fill=(255, 255, 255, opacity))
+    if day:
+        overlay_draw.ellipse(circle, fill=(180, 180, 0, opacity), outline = (0, 0, 0))
 
-    # Overlay the sun/moon on the background as an alpha matte
+    # Overlay the sun/moon on the background
     composite = Image.alpha_composite(img, overlay).filter(ImageFilter.GaussianBlur(radius=blur))
 
     return composite
@@ -1268,10 +1270,10 @@ message = ""
 # Set up air quality levels for icon display
 icon_air_quality_levels = ['Great', 'OK', 'Alert', 'Poor', 'Bad']
 # Values that alter the look of the background
-blur = 50
-opacity = 100
+blur = 5
+opacity = 255
 icon_background_hue = [240, 120, 60, 39, 0]
-sun_radius = 50
+sun_radius = 20
 # Margins
 margin = 3
 
