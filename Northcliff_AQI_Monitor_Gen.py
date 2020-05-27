@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor - 4.41 - Gen
+#Northcliff Environment Monitor
+# Requires Home Manager >=8.54 with Enviro Monitor timeout
+monitor_version = "Version 4.44"
 
 import paho.mqtt.client as mqtt
 import colorsys
@@ -42,7 +44,7 @@ logging.basicConfig(
     format='%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s',
     level=logging.INFO,
     datefmt='%Y-%m-%d %H:%M:%S')
-logging.info("""Northcliff_Environment_Monitor.py 4.41 - Combined enviro+ sensor capture, external sensor capture, Luftdaten and Home Manager Updates and display of readings.
+logging.info("""Northcliff_Environment_Monitor.py - Combined enviro+ sensor capture, external sensor capture, Luftdaten and Home Manager Updates and display of readings.
 #Press Ctrl+C to exit!
 
 #Note: you'll need to register with Luftdaten at:
@@ -52,6 +54,7 @@ logging.info("""Northcliff_Environment_Monitor.py 4.41 - Combined enviro+ sensor
 #Luftdaten map.
 
 #""")
+print(monitor_version)
 
 bus = SMBus(1)
 
@@ -389,35 +392,41 @@ def display_error(message):
     disp.display(img)
 
 # Display the Raspberry Pi serial number on a background colour based on the air quality level
-def disabled_display(gas_sensors_warm, air_quality_data, air_quality_data_no_gas, data, palette):
+def disabled_display(gas_sensors_warm, air_quality_data, air_quality_data_no_gas, data, palette, enable_adafruit_io, aio_user_name, aio_household_prefix):
     max_aqi = max_aqi_level_factor(gas_sensors_warm, air_quality_data, air_quality_data_no_gas, data)
     back_colour = palette[max_aqi[1]]
     text_colour = (255, 255, 255)
     id = get_serial_number()
-    message = "{}".format(id)
+    if enable_adafruit_io:
+        message = "{}\nhttp://io.adafruit.com\n/{}/dashboards\n/{}".format(id, aio_user_name, aio_household_prefix)
+    else:
+        message = "{}".format(id)
     img = Image.new('RGB', (WIDTH, HEIGHT), color=(0, 0, 0))
     draw = ImageDraw.Draw(img)
-    size_x, size_y = draw.textsize(message, mediumfont)
+    size_x, size_y = draw.textsize(message, font_smm)
     x = (WIDTH - size_x) / 2
     y = (HEIGHT / 2) - (size_y / 2)
     draw.rectangle((0, 0, 160, 80), back_colour)
-    draw.text((x, y), message, font=mediumfont, fill=text_colour)
+    draw.text((x, y), message, font=font_smm, fill=text_colour)
     disp.display(img)
     
 # Display Raspberry Pi serial and Wi-Fi status on LCD
-def display_status():
+def display_status(enable_adafruit_io, aio_user_name, aio_household_prefix):
     wifi_status = "connected" if check_wifi() else "disconnected"
     text_colour = (255, 255, 255)
     back_colour = (0, 170, 170) if check_wifi() else (85, 15, 15)
     id = get_serial_number()
-    message = "Northcliff\nEnvironment Monitor\n{}\nWi-Fi: {}".format(id, wifi_status)
+    if enable_adafruit_io:
+        message = "{}\nhttp://io.adafruit.com\n/{}/dashboards\n/{}".format(id, aio_user_name, aio_household_prefix)
+    else:
+        message = "Northcliff\nEnviro Monitor\n{}\nwifi: {}".format(id, wifi_status)
     img = Image.new('RGB', (WIDTH, HEIGHT), color=(0, 0, 0))
     draw = ImageDraw.Draw(img)
-    size_x, size_y = draw.textsize(message, mediumfont)
+    size_x, size_y = draw.textsize(message, font_smm)
     x = (WIDTH - size_x) / 2
     y = (HEIGHT / 2) - (size_y / 2)
     draw.rectangle((0, 0, 160, 80), back_colour)
-    draw.text((x, y), message, font=mediumfont, fill=text_colour)
+    draw.text((x, y), message, font=font_smm, fill=text_colour)
     disp.display(img)
     
 def send_data_to_aio(feed_key, data):
@@ -650,7 +659,7 @@ def display_all_aq(location, data, data_in_display_all_aq):
 def display_results(start_current_display, current_display_is_own, display_modes, indoor_outdoor_display_duration, own_data, data_in_display_all_aq, outdoor_data, outdoor_reading_captured,
                     own_disp_values, outdoor_disp_values, delay, last_page, mode, luft_values, mqtt_values, WIDTH, valid_barometer_history, forecast,
                     barometer_available_time, barometer_change, barometer_trend, icon_forecast, maxi_temp, mini_temp, air_quality_data, air_quality_data_no_gas,
-                    gas_sensors_warm, outdoor_gas_sensors_warm, enable_display, palette):
+                    gas_sensors_warm, outdoor_gas_sensors_warm, enable_display, palette, enable_adafruit_io, aio_user_name, aio_household_prefix):
     # Allow for display selection if display is enabled, else only display the serial number on a background colour based on max_aqi
     if enable_display:
         proximity = ltr559.get_proximity()
@@ -677,7 +686,7 @@ def display_results(start_current_display, current_display_is_own, display_modes
         elif selected_display_mode == "Forecast":
             display_forecast(valid_barometer_history, forecast, barometer_available_time, own_data["Bar"][1], barometer_change)
         elif selected_display_mode == "Status":
-            display_status()
+            display_status(enable_adafruit_io, aio_user_name, aio_household_prefix)
         elif selected_display_mode == "All Air":
             # Display everything on one screen
             if current_display_is_own and indoor_outdoor_function == 'Indoor':
@@ -700,7 +709,7 @@ def display_results(start_current_display, current_display_is_own, display_modes
         else:
             pass
     else:
-        disabled_display(gas_sensors_warm, air_quality_data, air_quality_data_no_gas, own_data, palette)
+        disabled_display(gas_sensors_warm, air_quality_data, air_quality_data_no_gas, own_data, palette, enable_adafruit_io, aio_user_name, aio_household_prefix)
     last_page = time.time()
     return last_page, mode, start_current_display, current_display_is_own
 
@@ -1459,9 +1468,21 @@ mqtt_values["Bar"] = [gas_calib_bar, domoticz_forecast]
 domoticz_hum_map = {"good": "1", "dry": "2", "wet": "3"}
 mqtt_values["Hum"] = [gas_calib_hum, domoticz_hum_map["good"]]
 path = os.path.dirname(os.path.realpath(__file__))
+# Capture software and config versions
+try:
+    with open('<Your Mender Software Version File Location Here>', 'r') as f:
+        startup_mender_software_version = f.read()
+except IOError:
+    print('No Mender Software Version Available. Using Default')
+    startup_mender_software_version = monitor_version
+try:
+    with open('<Your Mender Config Version File Location Here>', 'r') as f:
+        startup_mender_config_version = f.read()
+except IOError:
+    print('No Mender Config Version Available. Using Default')
+    startup_mender_config_version = "Base Config"
 # Check for a persistence data log and use it if it exists and was < 10 minutes ago
 persistent_data_log = {}
-    
 try:
     with open('<Your Persistent Data Log File Name Here>', 'r') as f:
         persistent_data_log = json.loads(f.read())
@@ -1562,7 +1583,8 @@ try:
                                                                                          barometer_trend, icon_forecast, maxi_temp,
                                                                                          mini_temp, air_quality_data, air_quality_data_no_gas,
                                                                                          gas_sensors_warm,
-                                                                                         outdoor_gas_sensors_warm, enable_display, palette)
+                                                                                         outdoor_gas_sensors_warm, enable_display, palette,
+                                                                                         enable_adafruit_io, aio_user_name, aio_household_prefix)
 
         # Provide external updates and update persistent data log
         if run_time > startup_stabilisation_time: # Wait until the gas sensors have stabilised before providing external updates or updating the persistent data log
@@ -1577,7 +1599,7 @@ try:
                                                                                                                                                   aio_air_quality_text_format, own_data, icon_air_quality_levels,
                                                                                                                                                   aio_forecast, aio_package, gas_sensors_warm, air_quality_data,
                                                                                                                                                   air_quality_data_no_gas, previous_aio_air_quality_level,
-                                                                                                                                                  previous_aio_air_quality_text,previous_aio_forecast_text,
+                                                                                                                                                  previous_aio_air_quality_text, previous_aio_forecast_text,
                                                                                                                                                   previous_aio_forecast)
                     data_sent_to_luftdaten_or_aio = True
                     previous_aio_update_minute = window_minute
@@ -1612,6 +1634,27 @@ try:
                     f.write(json.dumps(persistent_data_log))
                 if "Forecast" in mqtt_values:
                     mqtt_values.pop("Forecast") # Remove Forecast after sending it to home manager so that forecast data is only sent when updated
+                # Check if there has been software or config update and restart code if either has been updated
+                try:
+                    with open('<Your Mender Software Version File Location Here>', 'r') as f:
+                        latest_mender_software_version = f.read()
+                except IOError:
+                    print('No Mender Software Version Available')
+                    latest_mender_software_version = startup_mender_software_version
+                print("Startup Mender Software Version:", startup_mender_software_version, "Latest Mender Software Version:", latest_mender_software_version)
+                try:
+                    with open('<Your Mender Config Version File Location Here>', 'r') as f:
+                        latest_mender_config_version = f.read()
+                except IOError:
+                    print('No Mender Config Version Available')
+                    latest_mender_config_version = startup_mender_config_version
+                print("Startup Mender Config Version:", startup_mender_config_version, "Latest Mender Config Version:", latest_mender_config_version)
+                if latest_mender_software_version != startup_mender_software_version or latest_mender_config_version != startup_mender_config_version:
+                    print('Software or Config Update Received. Restarting aqimonitor')
+                    if enable_send_data_to_homemanager or enable_receive_data_from_homemanager:
+                        client.loop_stop()
+                    time.sleep(10)
+                    os.system('sudo systemctl restart aqimonitor')
                 print('Waiting for next capture cycle')
         # Luftdaten and Adafruit IO Communications Check
         if aio_resp or luft_resp: # Set time when a successful Luftdaten or Adafruit IO response is received, or if either Luftdaten or Adafruit IO is disabled
