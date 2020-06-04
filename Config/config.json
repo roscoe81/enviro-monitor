@@ -16,6 +16,8 @@
 "enable_luftdaten": false,
 "enable_climate_and_gas_logging": false,
 "enable_particle_sensor": true,
+"enable_eco2_tvoc": false,
+"gas_daily_r0_calibration_hour": 3,
 "incoming_temp_hum_mqtt_topic": "<>",
 "incoming_temp_hum_mqtt_sensor_name": "<>",
 "incoming_barometer_mqtt_topic": "<>",

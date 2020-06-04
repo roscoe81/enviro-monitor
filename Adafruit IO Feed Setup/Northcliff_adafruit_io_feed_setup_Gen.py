@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor Adafruit IO Feed Setup 7.3a - Gen Add Privacy Option to feeds
+#Northcliff Environment Monitor Adafruit IO Feed Setup 7.5 - Gen  Add Premium Plus + Separate Gas Charts
 import requests
 import json
 
 
 # The aio_feed_prefix dictionary sets up the feed name and key prefixes, as well as the dashboard visibility setting. Customise the dictionary based on the names and keys for each property to be monitored,
 # and the names and keys of the Enviro Monitors at each property (can be one Indoor unit or one Outdoor unit or a pairing of an Indoor and an Outdoor unit).
-# aio_package choices are either "Premium", "Basic Air" or "Basic Combo". All of this data needs to match the setup for each Enviro Monitor's config.json file (i.e. "aio_household_prefix", "aio_location_prefix" and "aio_package")
+# aio_package choices are either "Premium Plus", "Premium", "Basic Air" or "Basic Combo". All of this data needs to match the setup for each Enviro Monitor's config.json file (i.e. "aio_household_prefix", "aio_location_prefix" and "aio_package")
 # Also enter your Adafruit IO User Name and Key
 #Enter your data between the #### lines
 #####################################################################################################################################################################################################################
@@ -21,9 +21,12 @@ aio_key = "<Your Adafruit IO Key Here>"
 enviro_aio_premium_feeds = {"Temperature": "temperature", "Humidity": "humidity", "Barometer": "barometer", "Lux": "lux", "PM1": "pm1", "PM2.5": "pm2-dot-5",
                     "PM10": "pm10", "Reducing": "reducing", "Oxidising": "oxidising", "Ammonia": "ammonia", "Air Quality Level": "air-quality-level", "Air Quality Text": "air-quality-text",
                     "Weather Forecast Text": "weather-forecast", "Weather Forecast Icon": "weather-forecast-icon"}
+enviro_aio_premium_plus_feeds = {"Temperature": "temperature", "Humidity": "humidity", "Barometer": "barometer", "Lux": "lux", "PM1": "pm1", "PM2.5": "pm2-dot-5",
+                    "PM10": "pm10", "Carbon Dioxide": "carbon-dioxide", "TVOC": "tvoc", "Reducing": "reducing", "Oxidising": "oxidising", "Ammonia": "ammonia", "Air Quality Level": "air-quality-level", "Air Quality Text": "air-quality-text",
+                    "Weather Forecast Text": "weather-forecast", "Weather Forecast Icon": "weather-forecast-icon"}
 enviro_aio_basic_air_feeds = {"PM1": "pm1", "PM2.5": "pm2-dot-5", "PM10": "pm10", "Air Quality Level": "air-quality-level", "Air Quality Text": "air-quality-text"}
 enviro_aio_basic_combo_feeds = {"Temperature": "temperature", "Humidity": "humidity", "Barometer": "barometer", "Air Quality Level": "air-quality-level", "Weather Forecast Icon": "weather-forecast-icon"}
-enviro_aio_feeds_map = {'Premium': enviro_aio_premium_feeds, 'Basic Air': enviro_aio_basic_air_feeds, 'Basic Combo': enviro_aio_basic_combo_feeds}
+enviro_aio_feeds_map = {'Premium Plus': enviro_aio_premium_plus_feeds, 'Premium': enviro_aio_premium_feeds, 'Basic Air': enviro_aio_basic_air_feeds, 'Basic Combo': enviro_aio_basic_combo_feeds}
 enviro_aio_premium_blocks = [{"name": "Temperature Gauge", "key": "temperature-gauge", "visual_type": "gauge", "description": "", "properties": {"showIcon": True, "icon": "thermometer", "label": "\u00b0 C", "minValue": "0", "maxValue": "40",
                                                                                                                                                  "ringWidth": "25", "minWarning": "5", "maxWarning": "35", "decimalPlaces": "1"},
                               "row": 0, "column": 0, "dashboard_id": 0, "size_x": 4, "size_y": 4, "block_feeds": [{"feed_id": "temperature", "group_id": "default"}]},
@@ -46,14 +49,84 @@ enviro_aio_premium_blocks = [{"name": "Temperature Gauge", "key": "temperature-g
                              {"name": "PM2.5 Gauge", "key": "pm2-dot-5-gauge", "visual_type": "gauge", "description": "", "properties": {"showIcon": True, "icon": "w:smog", "label": "ug/m3", "minValue": "0", "maxValue": "53",
                                                                                                                                                  "ringWidth": "25", "minWarning": "11", "maxWarning": "35", "decimalPlaces": "0"},
                               "row": 0, "column": 0, "dashboard_id": 0, "size_x": 4, "size_y": 4, "block_feeds": [{"feed_id": "pm2-dot-5", "group_id": "default"}]},
+                             {"name": "Air Quality Level Chart", "key": "air-quality-level-chart", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "Level", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "0",
+                                                                                                                                    "rawDataOnly": False, "steppedLine": True, "historyHours": 24},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "air-quality-level", "group_id": "default"}]},
                              {"name": "Air Particles Chart", "key": "air-particles", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "ug/m3", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "0",
                                                                                                                                     "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
                               "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "pm1", "group_id": "default"}, {"feed_id": "pm2-dot-5", "group_id": "default"},
                                                                                                                  {"feed_id": "pm10", "group_id": "default"}]},
-                             {"name": "Gas Levels Chart", "key": "gas-levels", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "ppm", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "1",
+                             {"name": "Reducing Gas Chart", "key": "reducing-chart", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "ppm", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "1",
                                                                                                                                     "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
-                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "reducing", "group_id": "default"}, {"feed_id": "oxidising", "group_id": "default"},
-                                                                                                                 {"feed_id": "ammonia", "group_id": "default"}]},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "reducing", "group_id": "default"}]},
+                             {"name": "Oxidising Gas Chart", "key": "oxidising-chart", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "ppm", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "1",
+                                                                                                                                    "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "oxidising", "group_id": "default"}]},
+                             {"name": "Ammonia Gas Chart", "key": "ammonia-chart", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "ppm", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "1",
+                                                                                                                                    "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "ammonia", "group_id": "default"}]},
+                             {"name": "Temperature Chart", "key": "temperature", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "Degrees C", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "1",
+                                                                                                                                    "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "temperature", "group_id": "default"}]},
+                             {"name": "Humidity Chart", "key": "humidity", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "%", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "1",
+                                                                                                                                    "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "humidity", "group_id": "default"}]},
+                             {"name": "Air Pressure Chart", "key": "air-pressure", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "hPa", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "1",
+                                                                                                                                    "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "barometer", "group_id": "default"}]},
+                             {"name": "Light Level Chart", "key": "lux", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "Lux", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "0",
+                                                                                                                                    "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "lux", "group_id": "default"}]}]
+enviro_aio_premium_plus_blocks = [{"name": "Temperature Gauge", "key": "temperature-gauge", "visual_type": "gauge", "description": "", "properties": {"showIcon": True, "icon": "thermometer", "label": "\u00b0 C", "minValue": "0", "maxValue": "40",
+                                                                                                                                                 "ringWidth": "25", "minWarning": "5", "maxWarning": "35", "decimalPlaces": "1"},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 4, "size_y": 4, "block_feeds": [{"feed_id": "temperature", "group_id": "default"}]},
+                             {"name": "Humidity Gauge", "key": "humidity-gauge", "visual_type": "gauge", "description": "", "properties": {"showIcon": True, "icon": "w:humidity", "label": "%", "minValue": "0", "maxValue": "100",
+                                                                                                                                                 "ringWidth": "25", "minWarning": "30", "maxWarning": "80", "decimalPlaces": "0"},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 4, "size_y": 4, "block_feeds": [{"feed_id": "humidity", "group_id": "default"}]},
+                             {"name": "Air Pressure Gauge", "key": "air-pressure-gauge", "visual_type": "gauge", "description": "", "properties": {"showIcon": True, "icon": "w:barometer", "label": "hPa", "minValue": "980", "maxValue": "1040",
+                                                                                                                                                 "ringWidth": "25", "minWarning": "990", "maxWarning": "1030", "decimalPlaces": "1"},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 4, "size_y": 4, "block_feeds": [{"feed_id": "barometer", "group_id": "default"}]},
+                             {"name": "Weather Forecast Icon", "key": "weather-forecast-icon", "visual_type": "icon", "description": "", "properties": {"static": False, "fontColor": "#1B9AF7"},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 5, "size_y": 3, "block_feeds": [{"feed_id": "weather-forecast-icon", "group_id": "default"}]},
+                             {"name": "Weather Forecast Text", "key": "weather-forecast-text", "visual_type": "text", "description": "", "properties": {"static": False, "fontSize": "24", "showIcon": False, "decimalPlaces": "-1"},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 3,
+                             "block_feeds": [{"feed_id": "weather-forecast-text", "group_id": "default"}]},
+                             {"name": "Air Quality Level Gauge", "key": "air-quality-level", "visual_type": "gauge", "description": "", "properties": {"showIcon": False, "label": "Level", "minValue": "0", "maxValue": "3.9",
+                                                                                                                                                 "ringWidth": "25", "minWarning": "1", "maxWarning": "2", "decimalPlaces": "0"},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 4, "size_y": 4, "block_feeds": [{"feed_id": "air-quality-level", "group_id": "default"}]},
+                             {"name": "Air Quality Level Text", "key": "air-quality-text", "visual_type": "text", "description": "", "properties": {"static": False, "fontSize": "48", "showIcon": False, "decimalPlaces": "-1"},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 3, "size_y": 3, "block_feeds": [{"feed_id": "air-quality-text", "group_id": "default"}]},
+                             {"name": "PM2.5 Gauge", "key": "pm2-dot-5-gauge", "visual_type": "gauge", "description": "", "properties": {"showIcon": True, "icon": "w:smog", "label": "ug/m3", "minValue": "0", "maxValue": "53",
+                                                                                                                                                 "ringWidth": "25", "minWarning": "11", "maxWarning": "35", "decimalPlaces": "0"},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 4, "size_y": 4, "block_feeds": [{"feed_id": "pm2-dot-5", "group_id": "default"}]},
+                             {"name": "Air Quality Level Chart", "key": "air-quality-level-chart", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "Level", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "0",
+                                                                                                                                    "rawDataOnly": False, "steppedLine": True, "historyHours": 24},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "air-quality-level", "group_id": "default"}]},
+                                  {"name": "Air Particles Chart", "key": "air-particles", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "ug/m3", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "0",
+                                                                                                                                    "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "pm1", "group_id": "default"}, {"feed_id": "pm2-dot-5", "group_id": "default"},
+                                                                                                                 {"feed_id": "pm10", "group_id": "default"}]},
+                             {"name": "Carbon Dioxide Gauge", "key": "carbon-dioxide-gauge", "visual_type": "gauge", "description": "", "properties": {"showIcon": True, "icon": "w:smog", "label": "ppm", "minValue": "0", "maxValue": "2000",
+                                                                                                                                                 "ringWidth": "25", "minWarning": "1000", "maxWarning": "1600", "decimalPlaces": "0"},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 4, "size_y": 4, "block_feeds": [{"feed_id": "carbon-dioxide", "group_id": "default"}]},
+                                  {"name": "TVOC Gauge", "key": "tvoc-gauge", "visual_type": "gauge", "description": "", "properties": {"showIcon": True, "icon": "w:smog", "label": "ppb", "minValue": "0", "maxValue": "750",
+                                                                                                                                                 "ringWidth": "25", "minWarning": "200", "maxWarning": "450", "decimalPlaces": "0"},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 4, "size_y": 4, "block_feeds": [{"feed_id": "tvoc", "group_id": "default"}]},
+                             {"name": "Carbon Dioxide Chart", "key": "carbon-dioxide-chart", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "ppm/ppb", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "0",
+                                                                                                                                    "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "carbon-dioxide", "group_id": "default"}]},
+                                  {"name": "TVOC Chart", "key": "tvoc-chart", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "ppm/ppb", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "0",
+                                                                                                                                    "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "tvoc", "group_id": "default"}]},
+                             {"name": "Reducing Gas Chart", "key": "reducing-chart", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "ppm", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "1",
+                                                                                                                                    "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "reducing", "group_id": "default"}]},
+                             {"name": "Oxidising Gas Chart", "key": "oxidising-chart", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "ppm", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "1",
+                                                                                                                                    "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "oxidising", "group_id": "default"}]},
+                             {"name": "Ammonia Gas Chart", "key": "ammonia-chart", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "ppm", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "1",
+                                                                                                                                    "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "ammonia", "group_id": "default"}]},
                              {"name": "Temperature Chart", "key": "temperature", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "Degrees C", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "1",
                                                                                                                                     "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
                               "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "temperature", "group_id": "default"}]},
@@ -69,6 +142,9 @@ enviro_aio_premium_blocks = [{"name": "Temperature Gauge", "key": "temperature-g
 enviro_aio_basic_air_blocks = [{"name": "Air Quality Level Gauge", "key": "air-quality-level", "visual_type": "gauge", "description": "", "properties": {"showIcon": False, "label": "Level", "minValue": "0", "maxValue": "3.9",
                                                                                                                                                  "ringWidth": "25", "minWarning": "1", "maxWarning": "2", "decimalPlaces": "0"},
                                 "row": 0, "column": 0, "dashboard_id": 0, "size_x": 4, "size_y": 4, "block_feeds": [{"feed_id": "air-quality-level", "group_id": "default"}]},
+                               {"name": "Air Quality Level Chart", "key": "air-quality-level-chart", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "Level", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "0",
+                                                                                                                                    "rawDataOnly": False, "steppedLine": True, "historyHours": 24},
+                              "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "air-quality-level", "group_id": "default"}]},
                                {"name": "Air Quality Level Text", "key": "air-quality-text", "visual_type": "text", "description": "", "properties": {"static": False, "fontSize": "48", "showIcon": False, "decimalPlaces": "-1"},
                                 "row": 0, "column": 0, "dashboard_id": 0, "size_x": 3, "size_y": 3, "block_feeds": [{"feed_id": "air-quality-text", "group_id": "default"}]},
                                {"name": "PM2.5 Gauge", "key": "pm2-dot-5-gauge", "visual_type": "gauge", "description": "", "properties": {"showIcon": True, "icon": "w:smog", "label": "ug/m3", "minValue": "0", "maxValue": "53",
@@ -92,6 +168,9 @@ enviro_aio_basic_combo_blocks = [{"name": "Temperature Gauge", "key": "temperatu
                                  {"name": "Air Quality Level Gauge", "key": "air-quality-level", "visual_type": "gauge", "description": "", "properties": {"showIcon": False, "label": "Level", "minValue": "0", "maxValue": "3.9",
                                                                                                                                                  "ringWidth": "25", "minWarning": "1", "maxWarning": "2", "decimalPlaces": "0"},
                                   "row": 0, "column": 0, "dashboard_id": 0, "size_x": 4, "size_y": 4, "block_feeds": [{"feed_id": "air-quality-level", "group_id": "default"}]},
+                                 {"name": "Air Quality Level Chart", "key": "air-quality-level-chart", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "Level", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "0",
+                                                                                                                                    "rawDataOnly": False, "steppedLine": True, "historyHours": 24},
+                                  "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "air-quality-level", "group_id": "default"}]},
                                  {"name": "Temperature Chart", "key": "temperature", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "Degrees C", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "1",
                                                                                                                                     "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
                                   "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "temperature", "group_id": "default"}]},
@@ -108,18 +187,12 @@ def create_aio_enviro_feeds():
     print("Creating Adafruit IO Feeds")
     for household in aio_feed_prefix:
         enviro_aio_feeds = enviro_aio_feeds_map[aio_feed_prefix[household]['package']]
-        for location in aio_feed_prefix[household]['locations']:
-            for enviro_feed in enviro_aio_feeds:
-                if enviro_feed != "Barometer" and enviro_feed != "Weather Forecast Text" and enviro_feed != "Weather Forecast Icon":
-                    feed_json["name"] = household + ' ' + location + ' ' + enviro_feed
-                    feed_json["key"] = aio_feed_prefix[household]['key'] + "-" + aio_feed_prefix[household]['locations'][location] + "-" + enviro_aio_feeds[enviro_feed]
-                    feed_json["description"] = ""
-                    feed_json["visibility"] = aio_feed_prefix[household]["visibility"]                    
-                else:
-                    feed_json["name"] = household + ' ' + enviro_feed
-                    feed_json["key"] = aio_feed_prefix[household]['key'] + "-" + enviro_aio_feeds[enviro_feed] # Only one barometer feed, forecast feed and forecast icon feed per household
-                    feed_json["description"] = ""
-                    feed_json["visibility"] = aio_feed_prefix[household]["visibility"]
+        for enviro_feed in enviro_aio_feeds:
+            if enviro_feed == "Barometer" or enviro_feed == "Weather Forecast Text" or enviro_feed == "Weather Forecast Icon":
+                feed_json["name"] = household + ' ' + enviro_feed
+                feed_json["key"] = aio_feed_prefix[household]['key'] + "-" + enviro_aio_feeds[enviro_feed] # Only one barometer feed, forecast feed and forecast icon feed per household
+                feed_json["description"] = ""
+                feed_json["visibility"] = aio_feed_prefix[household]["visibility"]
                 print(feed_json)
                 response, resp_error, reason = _post('/feeds/', feed_json)
                 #print(response, resp_error, reason)
@@ -131,6 +204,39 @@ def create_aio_enviro_feeds():
                     print(feed_json["name"], 'Feed Creation Failed because of',feed_error_reason)
                 else:
                     print(feed_json["name"], 'Feed Creation Successful')
+            elif enviro_feed == "Carbon Dioxide" or enviro_feed == "TVOC":
+                feed_json["name"] = household + ' Indoor ' + enviro_feed
+                feed_json["key"] = aio_feed_prefix[household]['key'] + "-indoor-" + enviro_aio_feeds[enviro_feed] # Only indoor eCO2 and TVOC feeds per household
+                feed_json["description"] = ""
+                feed_json["visibility"] = aio_feed_prefix[household]["visibility"]
+                print(feed_json)
+                response, resp_error, reason = _post('/feeds/', feed_json)
+                #print(response, resp_error, reason)
+                if resp_error:
+                    create_feed_error = True
+                    feed_error_name = feed_json["name"]
+                    feed_error_reason = reason
+                if create_feed_error:
+                    print(feed_json["name"], 'Feed Creation Failed because of',feed_error_reason)
+                else:
+                    print(feed_json["name"], 'Feed Creation Successful')
+            else:
+                for location in aio_feed_prefix[household]['locations']:
+                    feed_json["name"] = household + ' ' + location + ' ' + enviro_feed
+                    feed_json["key"] = aio_feed_prefix[household]['key'] + "-" + aio_feed_prefix[household]['locations'][location] + "-" + enviro_aio_feeds[enviro_feed]
+                    feed_json["description"] = ""
+                    feed_json["visibility"] = aio_feed_prefix[household]["visibility"]
+                    print(feed_json)
+                    response, resp_error, reason = _post('/feeds/', feed_json)
+                    #print(response, resp_error, reason)
+                    if resp_error:
+                        create_feed_error = True
+                        feed_error_name = feed_json["name"]
+                        feed_error_reason = reason
+                    if create_feed_error:
+                        print(feed_json["name"], 'Feed Creation Failed because of',feed_error_reason)
+                    else:
+                        print(feed_json["name"], 'Feed Creation Successful')
 
 
 def _post(path, data):
@@ -195,6 +301,8 @@ def create_aio_enviro_blocks():
         dashboard_key = aio_feed_prefix[household]["key"]
         if aio_feed_prefix[household]["package"] == 'Premium':
             dashboard_blocks = enviro_aio_premium_blocks
+        elif aio_feed_prefix[household]["package"] == 'Premium Plus':
+            dashboard_blocks = enviro_aio_premium_plus_blocks
         elif aio_feed_prefix[household]["package"] == 'Basic Air':
             dashboard_blocks = enviro_aio_basic_air_blocks
         elif aio_feed_prefix[household]["package"] == 'Basic Combo':
@@ -220,7 +328,9 @@ def create_aio_enviro_blocks():
                     block_error_reason = reason
                 else:
                     print(household, dashboard_blocks[block]["name"], 'Block Creation Successful')
-            elif (dashboard_blocks[block]["name"] == "Temperature Chart" or dashboard_blocks[block]["name"] == "Humidity Chart" or dashboard_blocks[block]["name"] == "Light Level Chart"):
+            elif (dashboard_blocks[block]["name"] == "Temperature Chart" or dashboard_blocks[block]["name"] == "Humidity Chart" or dashboard_blocks[block]["name"] == "Light Level Chart" or
+                  dashboard_blocks[block]["name"] == "Air Quality Level Chart" or dashboard_blocks[block]["name"] == "Reducing Gas Chart" or
+                  dashboard_blocks[block]["name"] == "Oxidising Gas Chart" or dashboard_blocks[block]["name"] == "Ammonia Gas Chart"):
                 # Can be only one of these per property and they have more than one block_feed each
                 for key in dashboard_blocks[block]:
                     if key != "block_feeds":
@@ -261,6 +371,50 @@ def create_aio_enviro_blocks():
                         block_error_reason = reason
                     else:
                         print(household, location, dashboard_blocks[block]["name"], 'Block Creation Successful')
+            elif (dashboard_blocks[block]["name"] == "Carbon Dioxide Gauge" or dashboard_blocks[block]["name"] == "TVOC Gauge" or
+                   dashboard_blocks[block]["name"] == "Carbon Dioxide Chart" or dashboard_blocks[block]["name"] == "TVOC Chart"): # Can only be Indoor Blocks
+                location = "Indoor"
+                for key in dashboard_blocks[block]:
+                    if key == "name":
+                        block_json[key] = location + " " + dashboard_blocks[block]["name"]
+                    elif key == "key":
+                        block_json[key] = aio_feed_prefix[household]["locations"][location] + "-" + dashboard_blocks[block]["key"]
+                    elif key == "block_feeds":
+                        block_json["block_feeds"] = [{"group_id": dashboard_blocks[block]["block_feeds"][0]["group_id"],"feed_id": dashboard_key + "-" +aio_feed_prefix[household]["locations"][location] +
+                                                      '-' + dashboard_blocks[block]["block_feeds"][0]["feed_id"]}]
+                    else: 
+                        block_json[key] = dashboard_blocks[block][key]
+                # Send Block Data
+                #print("block_json", block_json)
+                response, resp_error, reason = _post('/dashboards/' + dashboard_key + '/blocks', block_json)
+                if resp_error:
+                    create_block_error = True
+                    block_error_name = block
+                    block_error_reason = reason
+                else:
+                    print(household, location, dashboard_blocks[block]["name"], 'Block Creation Successful')
+            elif dashboard_blocks[block]["name"] == "Dummy for Future": # Can only be indoor Block but more than one feed
+                location = "Indoor"
+                for key in dashboard_blocks[block]:
+                    if key == "name":
+                        block_json[key] = location + " " + dashboard_blocks[block]["name"]
+                    elif key == "key":
+                        block_json[key] = aio_feed_prefix[household]["locations"][location] + "-" + dashboard_blocks[block]["key"]
+                    elif key == "block_feeds":
+                            block_json["block_feeds"] = [{"group_id": dashboard_blocks[block]["block_feeds"][block_feed]["group_id"], "feed_id": aio_feed_prefix[household]["key"] + "-"
+                                                          + aio_feed_prefix[household]["locations"][location] + "-" + dashboard_blocks[block]["block_feeds"][block_feed]["feed_id"]}
+                                                         for block_feed in range(len(dashboard_blocks[block]["block_feeds"]))]
+                    else: 
+                        block_json[key] = dashboard_blocks[block][key]
+                # Send Block Data
+                #print("block_json", block_json)
+                response, resp_error, reason = _post('/dashboards/' + dashboard_key + '/blocks', block_json)
+                if resp_error:
+                    create_block_error = True
+                    block_error_name = block
+                    block_error_reason = reason
+                else:
+                    print(household, location, dashboard_blocks[block]["name"], 'Block Creation Successful')
             else:  # Can be more than one of these per property and they have more than one block_feed each
                 for location in aio_feed_prefix[household]["locations"]:
                     for key in dashboard_blocks[block]:
