@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor
+#Northcliff Environment Monitor Fix Get and Set Baseline for SGP30 (Reverse order)
 # Requires Home Manager >=8.54 with Enviro Monitor timeout
-monitor_version = "Version 5.2 - Gen"
+monitor_version = "Version 5.5  - Gen"
 
 import paho.mqtt.client as mqtt
 import colorsys
@@ -670,6 +670,8 @@ def display_all_aq(location, data, data_in_display_all_aq, enable_eco2_tvoc):
         y = y_offset + ((HEIGHT/(row_count + 1) * (row +1)))
         if i == "Oxi":
             message = "{}: {:.2f}".format(i, data_value)
+        elif (i == "CO2" or i == "VOC") and location == "OUT":
+            message = "{}: N/A".format(i) # No CO2 or TVOC data comes from an outdoor unit (used on display of indoor unit when displaying outdoor readings)    
         else:
             message = "{}: {:.0f}".format(i, round(data_value, 0))
         lim = data[i][2]
@@ -705,6 +707,8 @@ def display_results(start_current_display, current_display_is_own, display_modes
                 display_graphed_data('IN', own_disp_values, selected_display_mode, own_data[selected_display_mode], WIDTH)
             elif current_display_is_own and indoor_outdoor_function == 'Outdoor':
                 display_graphed_data('OUT', own_disp_values, selected_display_mode, own_data[selected_display_mode], WIDTH)
+            elif not current_display_is_own and indoor_outdoor_function == 'Indoor' and (selected_display_mode == "CO2" or selected_display_mode == "VOC"): # No outdoor CO2 or TVOC Graph, so always display indoor graph
+                display_graphed_data('IN', own_disp_values, selected_display_mode, own_data[selected_display_mode], WIDTH)          
             else:
                 display_graphed_data('OUT', outdoor_disp_values, selected_display_mode, outdoor_data[selected_display_mode], WIDTH)
         elif selected_display_mode == "Forecast":
@@ -1331,15 +1335,15 @@ if enable_display: # Set temp and hum compensation when display is enabled (no w
     comp_hum_quad_c = 0.9391
 else: # Set temp and hum compensation when display is disabled (weather protection cover in place)
     # Cubic polynomial temp comp coefficients adjusted by config's temp_offset
-    comp_temp_cub_a = 0.00014
-    comp_temp_cub_b = -0.01395
-    comp_temp_cub_c = 1.41789
-    comp_temp_cub_d = -11.93073
+    comp_temp_cub_a = 0.00022
+    comp_temp_cub_b = -0.01727
+    comp_temp_cub_c = 1.30092
+    comp_temp_cub_d = -7.87250
     comp_temp_cub_d = comp_temp_cub_d + temp_offset
     # Quadratic polynomial hum comp coefficients
-    comp_hum_quad_a = -0.0262
-    comp_hum_quad_b = 3.5758
-    comp_hum_quad_c = -27.3625
+    comp_hum_quad_a = -0.0149
+    comp_hum_quad_b = 2.6579
+    comp_hum_quad_c = -13.5803
 # Gas Comp Factors: Change in Rs per raw temp degree C, raw percent humidity or hPa of raw air pressure relative to baselines
 red_temp_comp_factor = -2232
 red_hum_comp_factor = 32
@@ -1490,7 +1494,7 @@ mqtt_values["Hum"] = [gas_calib_hum, domoticz_hum_map["good"]]
 path = os.path.dirname(os.path.realpath(__file__))
 
 if enable_eco2_tvoc: # Set up SGP30 if it's enabled
-    eco2_tvoc_baseline = [] # Initialise tvoc_co2_baseline format:[tvoc value, eco2 value, time set]
+    eco2_tvoc_baseline = [] # Initialise tvoc_co2_baseline format: get - [eco2 value, tvoc value, time set] set - [tvoc value, eco2 value]
     valid_eco2_tvoc_baseline = False
     from sgp30 import SGP30
     import sys
@@ -1566,8 +1570,9 @@ if "eCO2 TVOC Baseline" in persistent_data_log and enable_eco2_tvoc: # Capture t
     if eco2_tvoc_baseline != []:
         if time.time() - eco2_tvoc_baseline[2] < 6048000: # Only use the baseline if it has been populated in the persistent data file and was updated less than a week ago
             valid_eco2_tvoc_baseline = True
-            print('Setting eCO2 and TVOC baseline', eco2_tvoc_baseline[0:2])
-            sgp30.command('set_baseline', eco2_tvoc_baseline[0:2])                
+            print('Setting eCO2 and TVOC baseline. get_baseline:', eco2_tvoc_baseline[0:2], 'set_baseline:', eco2_tvoc_baseline[::-1][1:3])
+            sgp30.command('set_baseline', eco2_tvoc_baseline[::-1][1:3]) # Reverse the order. get_baseline is in the order of CO2, TVOC. set_baseline is TVOC, CO2 !Arghh!
+
 # Update the weather forecast, based on the data retrieved from the persistent data log
 mqtt_values["Forecast"] = {"Valid": valid_barometer_history, "3 Hour Change": round(barometer_change, 1), "Forecast": forecast}                   
 
