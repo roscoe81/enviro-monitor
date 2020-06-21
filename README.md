@@ -19,6 +19,8 @@ mqtt support is provided to use external temperature and humidity sensors (for d
 
 [Luftdaten]( https://github.com/pimoroni/enviroplus-python/blob/master/examples/luftdaten.py)  interworking is essentially unchanged, other than the ability to use external temperature and humidity sensors via mqtt messages.
 
+The same [Enviro+ setup]( https://github.com/pimoroni/enviroplus-python/blob/master/README.md) is used and the [config.json](https://github.com/roscoe81/enviro-monitor/blob/master/Config/config.json) file parameters are used to customise its functionality.
+
 ## Adafruit IO Support
 Support is provided for streaming weather forecast, air quality, temperature, humidity, air pressure, PM concentration, gas concentration and, with the optional SGP30 sensor, eCO2 and TVOC data to Adafruit IO. This can be enabled and set up as follows:
 
@@ -54,8 +56,6 @@ The naming convention for each Enviro Monitor’s Adafruit IO feeds, dashboards 
 
 ### Adafruit IO Packages
 Four Adafruit IO package options are available: "Premium" with 14 data streams, "Premium Plus" with 16 data streams (i.e. the addition of eCO2 and TVOC through the optional SGP30 sensor) which will both need an Adafruit IO+ account; "Basic Air" with 5 air quality data streams (Air Quality Level, Air Quality Text, PM1, PM2.5 and PM10) and "Basic Combo" with 5 air quality/climate streams (Air Quality Level, Weather Forecast Icon, Temperature, Humidity and Air Pressure). 
-
-The same [Enviro+ setup]( https://github.com/pimoroni/enviroplus-python/blob/master/README.md) is used and the [config.json](https://github.com/roscoe81/enviro-monitor/blob/master/Config/config.json) file parameters are used to customise its functionality.
 
 ## License
 This project is licensed under the MIT License - see the LICENSE.md file for details
