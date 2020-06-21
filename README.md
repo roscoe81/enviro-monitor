@@ -23,6 +23,8 @@ mqtt support is provided to use external temperature and humidity sensors (for d
 
 The same [Enviro+ setup]( https://github.com/pimoroni/enviroplus-python/blob/master/README.md) is used and the [config.json](https://github.com/roscoe81/enviro-monitor/blob/master/Config/config.json) file parameters are used to customise its functionality.
 
+A [User Guide](https://github.com/roscoe81/enviro-monitor/blob/master/User%20Guide/Northcliff%20Enviro%20Monitor%20User%20Guide-Gen.pdf) provides guidance on the use of the monitor.
+
 ## Adafruit IO Support
 Support is provided for streaming weather forecast, air quality, temperature, humidity, air pressure, PM concentration, gas concentration and, with the optional SGP30 sensor, eCO2 and TVOC data to Adafruit IO. This can be enabled and set up as follows:
 
