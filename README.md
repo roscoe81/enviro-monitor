@@ -1,4 +1,4 @@
-# enviro-monitor
+## enviro-monitor
 This project uses a Raspberry Pi Zero W, a Pimoroni Enviro+ and a Plantower air quality sensor to monitor, display and report on air particles, gases, temperature, humidity, air pressure and light levels. The option to monitor eCO2 and TVOC levels by adding an [SGP30 sensor](https://shop.pimoroni.com/products/sgp30-air-quality-sensor-breakout) is now available. The code is based on many of the Python [examples and libraries](https://github.com/pimoroni/enviroplus-python) [published](https://github.com/pimoroni/sgp30-python) by Pimoroni, with the following modifications and enhancements:
 
 A basic weather forecast function, based on air pressure levels and changes.
@@ -19,7 +19,40 @@ mqtt support is provided to use external temperature and humidity sensors (for d
 
 [Luftdaten]( https://github.com/pimoroni/enviroplus-python/blob/master/examples/luftdaten.py)  interworking is essentially unchanged, other than the ability to use external temperature and humidity sensors via mqtt messages.
 
-Support is provided for streaming weather forecast, air quality, temperature, humidity, air pressure, PM concentration, gas concentration and, with the optional SGP30 sensor, eCO2 and TVOC data to Adafruit IO. Four Adafruit IO package options are available: "Premium" with 14 data streams, "Premium Plus" with 16 data streams (i.e. the addition of eCO2 and TVOC through the optional SGP30 sensor) which will both need an Adafruit IO+ account; "Basic Air" with 5 air quality data streams (Air Quality Level, Air Quality Text, PM1, PM2.5 and PM10) and "Basic Combo" with 5 air quality/climate streams (Air Quality Level, Weather Forecast Icon, Temperature, Humidity and Air Pressure). If enabled, Adafruit IO feed updates are generated every 10 minutes. The config file's aio_feed_window and aio_feed_sequence variables are used to minimise Adafruit IO throttling errors when collecting feeds from multiple Enviro Monitors. The aio_feed_window variable can be a value between 0 and 9 to set the start time for a one minute feed update window. 0 opens the window at 0, 10, 20, 30, 40 and 50 minutes past the hour, 1 opens the window at 1, 11, 21, 31, 41, and 51 minutes past the hour, 2 opens the window at 2, 12, 22, 32, 42 and 52 minutes past the hour, and so on. The aio_feed_sequence variable can be a value between 0 and 3 to set the feed update start time within the one minute feed update window. 0 starts the feed update immediately after the window opens, 1 delays the start by 15 seconds, 2 by 30 seconds and 3 by 45 seconds. A [tool](https://github.com/roscoe81/enviro-monitor/blob/master/Adafruit%20IO%20Feed%20Setup/Northcliff_adafruit_io_feed_setup_Gen.py) is provided to help set up the Adafruit IO feeds, dashboards and blocks. The tool can produce a dashboard like [this](https://io.adafruit.com/Roscoe81/dashboards/northcliff).
+Support is provided for streaming weather forecast, air quality, temperature, humidity, air pressure, PM concentration, gas concentration and, with the optional SGP30 sensor, eCO2 and TVOC data to Adafruit IO. This can be enabled and set up as follows:
+
+# Config File
+The following fields in the Enviro Monitor’s config.json file need to be populated to supply data to the Adafruit IO feeds. <> indicates user-defined data. Enter your own data here, without the <> characters.
+"enable_adafruit_io": <Set to true to enable and false to disable Adafruit IO feeds>,
+"aio_user_name": "<Your Adafruit IO User Name>",
+"aio_key": "<Your Adafruit IO Key>",
+"aio_feed_window": <Value between 0 and 9. Sets the start time for the one minute feed window (see Adafruit Throttling Control). Set to 0 if you only have one Enviro Monitor>,
+"aio_feed_sequence": <Value between 0 and 3. Sets the feed update start time within the one minute feed update window (see Adafruit Throttling Control ). Set to 0 if you only have one Enviro Monitor>,
+"aio_household_prefix": "<The Adafruit IO Key Prefix for the household you’re monitoring (see Adafruit IO Naming Convention)>",
+"aio_location_prefix": "< The Adafruit IO Key Prefix for the location of this particular Enviro Monitor. Use ‘indoor’ for an indoor monitor or ‘outdoor’ for an outdoor monitor. (see Adafruit IO Naming Convention)>",
+"aio_package": "<Set to ‘Premium Plus’ or ‘Premium’ or ‘Basic Air’ or ’ Basic Combo’. You will need an Adafruit IO+ account in order to use ‘Premium Plus’ or ‘Premium’ packages and an Enviro Monitor Indoor Plus (equipped with an SGP30 eCO2/TVOC sensor) for the ‘Premium Plus’ package (see Adafruit IO Packages)>",
+
+# Adafruit IO Feed, Dashboard and Block Setup
+The [script](https://github.com/roscoe81/enviro-monitor/blob/master/Adafruit%20IO%20Feed%20Setup/Northcliff_adafruit_io_feed_setup_Gen.py) sets up the Enviro Monitor’s Adafruit IO feeds, dashboards and blocks like [this example](https://io.adafruit.com/Roscoe81/dashboards/northcliff)
+The script can set up multiple households and locations in one run, by populating the aio_feed_prefix dictionary with the required data. The format for aio_feed_prefix is:
+aio_feed_prefix = {'Household 1 Name': {'key': 'household1key', 'package': '<aio_package>', 'locations': {'<Location1Name>': '<location1key', '<Location2Name>': '<location2key'}, 'visibility': '<"public" or "private">'}, 'Household 2 Name': {'key': 'household2key', 'package': '<aio_package>', 'locations': {'<Location1Name>': '<location1key>'}, 'visibility': '<"public" or "private">'}}
+The Household Names and Household Keys need to be consistent with those defined in the relevant Enviro Monitors’ config.json files.
+For example, if you only have one Enviro Monitor for your household, and if you’ve set "aio_household_prefix" to “home”, "aio_location_prefix" to “outdoor” and "aio_package" to “Premium” in your config.json file for that Enviro Monitor, and if you want the feeds, dashboards and blocks set with private visibility:
+aio_feed_prefix = {‘Home’: {'key': 'home', 'package': Premium', 'locations': {‘Outdoor': 'outdoor’}, 'visibility': 'private'}}
+If you have two Enviro Monitors for your household, and if you’ve set the config.json files as: "aio_household_prefix" to “home” for both Enviro Monitors, "aio_location_prefix" to “outdoor” for the outdoor monitor and “indoor” for your indoor monitor, "aio_package" to “Premium” for your outdoor monitor and “Premium Plus” for your indoor monitor, and if you want the feeds, dashboards and blocks set with public visibility:
+aio_feed_prefix = {‘Home’: {'key': 'home', 'package': Premium Plus', 'locations': {‘Outdoor': 'outdoor’, ‘Indoor’: ‘indoor’}, 'visibility': 'public'}}
+The two other user-defined dictionaries are aio_user_name and aio_key. These need to be populated with the same user name and key that you used in your Enviro Monitor’s config.json file.
+aio_user_name = "<Your Adafruit IO User Name>"
+aio_key = "<Your Adafruit IO Key>"
+
+# Adafruit IO Throttling Control
+If enabled, Adafruit IO feed updates are generated every 10 minutes. The config file's aio_feed_window and aio_feed_sequence variables are used to minimise Adafruit IO throttling errors when collecting feeds from multiple Enviro Monitors. The aio_feed_window variable can be a value between 0 and 9 to set the start time for a one minute feed update window. 0 opens the window at 0, 10, 20, 30, 40 and 50 minutes past the hour, 1 opens the window at 1, 11, 21, 31, 41, and 51 minutes past the hour, 2 opens the window at 2, 12, 22, 32, 42 and 52 minutes past the hour, and so on. The aio_feed_sequence variable can be a value between 0 and 3 to set the feed update start time within the one minute feed update window. 0 starts the feed update immediately after the window opens, 1 delays the start by 15 seconds, 2 by 30 seconds and 3 by 45 seconds.
+
+# Adafruit IO Naming Convention
+The naming convention for each Enviro Monitor’s Adafruit IO feeds, dashboards or blocks, is the use the name of the household, followed by the location of the relevant Enviro Monitor’s location within that household, as a prefix for each feed, dashboard or block. You choose a suitable name for "aio_household_prefix and "aio_location_prefix" can either be “indoor” or “outdoor”. For example, setting “aio_household_prefix" to “home” and "aio_location_prefix" to “outdoor” will set the prefix of each feed’s name as “Home Outdoor “ and the prefix of each feed’s key as “home-outdoor-“.  So, the Temperature Feed will have the name “Home Outdoor Temperature” and the key “home-outdoor-temperature”. The dashboard will have the name “Home” and key “home” and the temperature gauge block within that dashboard will have the name “Outdoor Temperature Gauge” and the key “outdoor-temperature-gauge”.
+
+# Adafruit IO Packages
+Four Adafruit IO package options are available: "Premium" with 14 data streams, "Premium Plus" with 16 data streams (i.e. the addition of eCO2 and TVOC through the optional SGP30 sensor) which will both need an Adafruit IO+ account; "Basic Air" with 5 air quality data streams (Air Quality Level, Air Quality Text, PM1, PM2.5 and PM10) and "Basic Combo" with 5 air quality/climate streams (Air Quality Level, Weather Forecast Icon, Temperature, Humidity and Air Pressure). 
 
 The same [Enviro+ setup]( https://github.com/pimoroni/enviroplus-python/blob/master/README.md) is used and the [config.json](https://github.com/roscoe81/enviro-monitor/blob/master/Config/config.json) file parameters are used to customise its functionality.
 
