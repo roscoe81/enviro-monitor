@@ -5,7 +5,7 @@ A basic weather forecast function, based on air pressure levels and changes.
 
 The light level display in the superb [Weather and Light](https://github.com/pimoroni/enviroplus-python/blob/master/examples/weather-and-light.py) has been changed to air quality. The background hue now represents the air quality level instead of sun position and the sun position is now provided with a visible sun icon. It also uses the above-mentioned weather forecast information and has some minor changes to the humidity indicator.
 
-The [Combined]( https://github.com/pimoroni/enviroplus-python/blob/master/examples/combined.py) has been modified to provide a more visible display of each graph, to use graph colours based on level thresholds for each parameter and to only display parameters that have been measured. The display_everything method has also been modified to only show air quality parameters, in order to improve readability of the display.
+The [Combined]( https://github.com/pimoroni/enviroplus-python/blob/master/examples/combined.py) function has been modified to provide a more visible display of each graph, to use graph colours based on level thresholds for each parameter and to only display parameters that have been measured. The display_everything method has also been modified to only show air quality parameters, in order to improve readability of the display.
 
 The [All in One]( https://github.com/pimoroni/enviroplus-python/blob/master/examples/all-in-one.py) function has been modified to allow cycling through the monitor’s functions.
 
