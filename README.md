@@ -51,7 +51,7 @@ The [script](https://github.com/roscoe81/enviro-monitor/blob/master/Adafruit%20I
 
 The script can set up multiple households and locations in one run, by populating the aio_feed_prefix dictionary with the required data. The format for aio_feed_prefix is:
 
-aio_feed_prefix = {'Household 1 Name': {'key': 'household1key', 'package': '<aio_package>', 'locations': {'<Location1Name>': '<location1key', '<Location2Name>': '<location2key'}, 'visibility': '<"public" or "private">'}, 'Household 2 Name': {'key': 'household2key', 'package': '<aio_package>', 'locations': {'<Location1Name>': '<location1key>'}, 'visibility': '<"public" or "private">'}}
+aio_feed_prefix = {'Household 1 Name': {'key': 'household1key', 'package': 'aio_package', 'locations': {'Location1Name': 'location1key', 'Location2Name': 'location2key'}, 'visibility': '"public" or "private"'}, 'Household 2 Name': {'key': 'household2key', 'package': 'aio_package', 'locations': {'Location1Name': 'location1key'}, 'visibility': '"public" or "private"'}}
   
 The Household Names and Household Keys need to be consistent with those defined in the relevant Enviro Monitors’ config.json files.
 
