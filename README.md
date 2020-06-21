@@ -22,7 +22,7 @@ mqtt support is provided to use external temperature and humidity sensors (for d
 ## Adafruit IO Support
 Support is provided for streaming weather forecast, air quality, temperature, humidity, air pressure, PM concentration, gas concentration and, with the optional SGP30 sensor, eCO2 and TVOC data to Adafruit IO. This can be enabled and set up as follows:
 
-### Config File
+### Config File Settings to Support Adafruit IO
 The following fields in the Enviro Monitor’s config.json file need to be populated to supply data to the Adafruit IO feeds. <> indicates user-defined data. Enter your own data here, without the <> characters.
 "enable_adafruit_io": <Set to true to enable and false to disable Adafruit IO feeds>,
 "aio_user_name": "<Your Adafruit IO User Name>",
