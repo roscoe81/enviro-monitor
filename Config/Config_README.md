@@ -1,7 +1,7 @@
 # Config File Description
 The config.json file is used to set the Enviro Monitor’s configuration. It has the following keys:
 
-"version”: The config file’s version. Provide ability to automate config updates
+"version”: The config file’s version. Provides the ability to automate config updates
 
 "temp_offset": Optional ability to provide a fixed temperature offset in degrees Celsius
 
@@ -11,19 +11,19 @@ The config.json file is used to set the Enviro Monitor’s configuration. It has
 
 "enable_adafruit_io": Set to true to enable Adafruit IO feeds, otherwise set to false
 
-"aio_user_name": Sets the Adafruit IO User Name
+"aio_user_name": Sets the Adafruit IO User Name. Set to “” if Adafruit Io is not enabled
 
-"aio_key": Sets the Adafruit IO User Key 
+"aio_key": Sets the Adafruit IO User Key. Set to “” if Adafruit IO is not enabled 
 
-"aio_feed_window": Sets the Adafruit IO Feed Window (see Adafruit IO Support)
+"aio_feed_window": Sets the Adafruit IO Feed Window (see Adafruit IO Support). Set to 0 if Adafruit IO is not enabled
 
-"aio_feed_sequence": Sets the Adafruit IO Feed Sequence (see Adafruit IO Support)
+"aio_feed_sequence": Sets the Adafruit IO Feed Sequence (see Adafruit IO Support). Set to 0 if Adafruit IO is not enabled
 
-"aio_household_prefix": Sets the Adafruit IO Household Prefix (see Adafruit IO Support)
+"aio_household_prefix": Sets the Adafruit IO Household Prefix (see Adafruit IO Support). Set to “” if Adafruit IO is not enabled
 
-"aio_location_prefix": Sets the Adafruit IO Location Prefix (see Adafruit IO Support)
+"aio_location_prefix": Sets the Adafruit IO Location Prefix (see Adafruit IO Support). Set to “” if Adafruit IO is not enabled
 
-"aio_package": Sets the Adafruit IO Package (see Adafruit IO Support)
+"aio_package": Sets the Adafruit IO Package (see Adafruit IO Support). Set to “” if Adafruit IO is not enabled
 
 "enable_send_data_to_homemanager": Enables sending of mqtt Home Automation Data if set to true, otherwise set to false
 
