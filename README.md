@@ -21,7 +21,7 @@ mqtt support is provided to use external temperature and humidity sensors (for d
 
 [Luftdaten]( https://github.com/pimoroni/enviroplus-python/blob/master/examples/luftdaten.py)  interworking is essentially unchanged, other than the ability to use external temperature and humidity sensors via mqtt messages.
 
-The same [Enviro+ setup]( https://github.com/pimoroni/enviroplus-python/blob/master/README.md) is used and the [config.json](https://github.com/roscoe81/enviro-monitor/blob/master/Config/config.json) file parameters are used to customise its functionality.
+The same [Enviro+ setup]( https://github.com/pimoroni/enviroplus-python/blob/master/README.md) is used and the [config.json](https://github.com/roscoe81/enviro-monitor/blob/master/Config/config.json) file parameters are used to customise its functionality. A description of the config.json file's parameters is [here](https://github.com/roscoe81/enviro-monitor/blob/master/Config/Config_README.md).
 
 A [User Guide](https://github.com/roscoe81/enviro-monitor/blob/master/User%20Guide/Northcliff%20Enviro%20Monitor%20User%20Guide-Gen.pdf) provides guidance on the use of the monitor.
 
