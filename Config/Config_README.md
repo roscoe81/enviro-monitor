@@ -1,4 +1,4 @@
-#Config File Description
+# Config File Description
 The config.json file is used to set the Enviro Monitor’s configuration. It has the following keys:
 
 "version”: The config file’s version. Provide ability to automate config updates
