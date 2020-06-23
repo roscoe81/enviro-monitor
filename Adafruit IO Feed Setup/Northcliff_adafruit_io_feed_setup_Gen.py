@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor Adafruit IO Feed Setup 7.8 - Gen
+#Northcliff Environment Monitor Adafruit IO Feed Setup 7.9 - Gen
 import requests
 import json
 
@@ -108,16 +108,16 @@ enviro_aio_premium_plus_blocks = [{"name": "Temperature Gauge", "key": "temperat
                                                                                                                                     "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
                               "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "pm1", "group_id": "default"}, {"feed_id": "pm2-dot-5", "group_id": "default"},
                                                                                                                  {"feed_id": "pm10", "group_id": "default"}]},
-                             {"name": "Carbon Dioxide Gauge", "key": "carbon-dioxide-gauge", "visual_type": "gauge", "description": "", "properties": {"showIcon": True, "icon": "w:smog", "label": "ppm", "minValue": "0", "maxValue": "2000",
+                             {"name": "eCarbon Dioxide Gauge", "key": "ecarbon-dioxide-gauge", "visual_type": "gauge", "description": "", "properties": {"showIcon": True, "icon": "w:smog", "label": "ppm", "minValue": "400", "maxValue": "2000",
                                                                                                                                                  "ringWidth": "25", "minWarning": "1000", "maxWarning": "1600", "decimalPlaces": "0"},
                               "row": 0, "column": 0, "dashboard_id": 0, "size_x": 4, "size_y": 4, "block_feeds": [{"feed_id": "carbon-dioxide", "group_id": "default"}]},
-                                  {"name": "TVOC Gauge", "key": "tvoc-gauge", "visual_type": "gauge", "description": "", "properties": {"showIcon": True, "icon": "w:smog", "label": "ppb", "minValue": "0", "maxValue": "750",
-                                                                                                                                                 "ringWidth": "25", "minWarning": "200", "maxWarning": "450", "decimalPlaces": "0"},
+                                  {"name": "TVOC Gauge", "key": "tvoc-gauge", "visual_type": "gauge", "description": "", "properties": {"showIcon": True, "icon": "w:smog", "label": "ppb", "minValue": "0", "maxValue": "2200",
+                                                                                                                                                 "ringWidth": "25", "minWarning": "220", "maxWarning": "660", "decimalPlaces": "0"},
                               "row": 0, "column": 0, "dashboard_id": 0, "size_x": 4, "size_y": 4, "block_feeds": [{"feed_id": "tvoc", "group_id": "default"}]},
-                             {"name": "Carbon Dioxide Chart", "key": "carbon-dioxide-chart", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "ppm/ppb", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "0",
+                             {"name": "eCarbon Dioxide Chart", "key": "ecarbon-dioxide-chart", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "ppm", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "0",
                                                                                                                                     "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
                               "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "carbon-dioxide", "group_id": "default"}]},
-                                  {"name": "TVOC Chart", "key": "tvoc-chart", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "ppm/ppb", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "0",
+                                  {"name": "TVOC Chart", "key": "tvoc-chart", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "ppb", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "0",
                                                                                                                                     "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
                               "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "tvoc", "group_id": "default"}]},
                              {"name": "Reducing Gas Chart", "key": "reducing-chart", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "ppm", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "1",
