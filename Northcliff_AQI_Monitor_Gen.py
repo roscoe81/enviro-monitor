@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 #Northcliff Environment Monitor
 # Requires Home Manager >=8.54 with Enviro Monitor timeout
-monitor_version = "5.19 - Gen"
+monitor_version = "5.22 - Gen"
 
 import paho.mqtt.client as mqtt
 import colorsys
@@ -1351,15 +1351,15 @@ elif enable_display and enable_eco2_tvoc: # Set temp and hum compensation when d
     comp_hum_quad_c = -3.8446
 else: # Set temp and hum compensation when display is disabled (weather protection cover in place)
     # Cubic polynomial temp comp coefficients adjusted by config's temp_offset
-    comp_temp_cub_a = 0.00022
-    comp_temp_cub_b = -0.01727
-    comp_temp_cub_c = 1.30092
-    comp_temp_cub_d = -7.87250
+    comp_temp_cub_a = 0.00033
+    comp_temp_cub_b = -0.03129
+    comp_temp_cub_c = 1.8736
+    comp_temp_cub_d = -14.82131
     comp_temp_cub_d = comp_temp_cub_d + temp_offset
     # Quadratic polynomial hum comp coefficients
-    comp_hum_quad_a = -0.0149
-    comp_hum_quad_b = 2.6579
-    comp_hum_quad_c = -13.5803
+    comp_hum_quad_a = -0.0221
+    comp_hum_quad_b = 3.3824
+    comp_hum_quad_c = -25.8102
 
 # New Gas Comp Factors based on long term regression testing and proportion of RS
 red_temp_comp_factor = -0.015
@@ -1391,7 +1391,10 @@ if enable_send_data_to_homemanager or enable_receive_data_from_homemanager or en
     client = mqtt.Client(mqtt_client_name)
     client.on_connect = on_connect
     client.on_message = on_message
-    client.connect(mqtt_broker_name, 1883, 60)
+    try:
+        client.connect(mqtt_broker_name, 1883, 60)
+    except:
+        print('No mqtt Broker Connection')   
     client.loop_start()
   
 if enable_adafruit_io:
@@ -1547,6 +1550,8 @@ try:
         persistent_data_log = json.loads(f.read())
 except IOError:
     print('No Persistent Data Log Available. Using Defaults')
+except json.decoder.JSONDecodeError:
+    print('Invalid Persistent Data Log File Format. Using Defaults') 
 if "Update Time" in persistent_data_log and "Gas Calib Temp List" in persistent_data_log: # Check that the log has been updated and has a format > 3.87
     if (start_time - persistent_data_log["Update Time"]) < 1200: # Only update non eCO2/TVOC variables if the log was updated < 20 minutes before start-up
         long_update_time = persistent_data_log["Update Time"]
