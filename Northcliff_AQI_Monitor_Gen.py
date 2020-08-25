@@ -1390,11 +1390,11 @@ logging.info("Wi-Fi: {}\n".format("connected" if check_wifi() else "disconnected
 # Set up mqtt if required
 if enable_send_data_to_homemanager or enable_receive_data_from_homemanager or enable_indoor_outdoor_functionality:
     es = ExternalSensors()
-    if mqtt_username and mqtt_password:
-        client.username_pw_set(mqtt_username, mqtt_password)
     client = mqtt.Client(mqtt_client_name)
     client.on_connect = on_connect
     client.on_message = on_message
+    if mqtt_username and mqtt_password:
+        client.username_pw_set(mqtt_username, mqtt_password)
     try:
         client.connect(mqtt_broker_name, 1883, 60)
     except:
