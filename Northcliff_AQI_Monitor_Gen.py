@@ -74,7 +74,7 @@ disp.begin()
 
 def retrieve_config():
     try:
-        with open('<Your config.json file location>', 'r') as f:
+        with open('/home/pi/chriskoh/enviro-monitor/Config/config.json', 'r') as f:
             parsed_config_parameters = json.loads(f.read())
             print('Retrieved Config', parsed_config_parameters)
     except IOError:
@@ -132,7 +132,7 @@ def retrieve_config():
 # Config Setup
 (temp_offset, altitude, enable_display, enable_adafruit_io, aio_user_name, aio_key, aio_feed_window, aio_feed_sequence,
   aio_household_prefix, aio_location_prefix, aio_package, enable_send_data_to_homemanager,
-  enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality, mqtt_broker_name,
+  enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality, mqtt_broker_name, mqtt_username, mqtt_password,
   enable_luftdaten, enable_climate_and_gas_logging,  enable_particle_sensor, enable_eco2_tvoc, gas_daily_r0_calibration_hour, reset_gas_sensor_calibration,
   incoming_temp_hum_mqtt_topic, incoming_temp_hum_mqtt_sensor_name, incoming_barometer_mqtt_topic, incoming_barometer_sensor_id,
   indoor_outdoor_function, mqtt_client_name, outdoor_mqtt_topic, indoor_mqtt_topic,
