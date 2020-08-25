@@ -74,7 +74,7 @@ disp.begin()
 
 def retrieve_config():
     try:
-        with open('/home/pi/chriskoh/enviro-monitor/Config/config.json', 'r') as f:
+        with open('<Your config.json file location>', 'r') as f:
             parsed_config_parameters = json.loads(f.read())
             print('Retrieved Config', parsed_config_parameters)
     except IOError:
