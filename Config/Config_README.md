@@ -33,6 +33,10 @@ The config.json file is used to set the Enviro Monitor’s configuration. It has
 
 "mqtt_broker_name": Sets the host name of the mqtt broker if mqtt messages are used for Home Automation and/or indoor/outdoor functionality. Set to “” if no mqtt messaging is required
 
+"mqtt_username": Sets the username for mqtt broker authentication. Set to "" if no mqtt broker authentication is necessary
+
+"mqtt_password": Sets the password for mqtt broker authentication. Set to "" if no mqtt broker authentication is necessary
+
 "enable_luftdaten": Set to true to send data to Luftdaten, otherwise set to false
 
 "enable_climate_and_gas_logging": Set to true to log data, otherwise set to false
