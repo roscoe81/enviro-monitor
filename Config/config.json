@@ -14,6 +14,8 @@
 "enable_receive_data_from_homemanager": false,
 "enable_indoor_outdoor_functionality": false,
 "mqtt_broker_name": "<>",
+"mqtt_username": "<>",
+"mqtt_password": "<>",
 "enable_luftdaten": false,
 "enable_climate_and_gas_logging": true,
 "enable_particle_sensor": true,
