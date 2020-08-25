@@ -94,6 +94,8 @@ def retrieve_config():
     enable_receive_data_from_homemanager = parsed_config_parameters['enable_receive_data_from_homemanager']
     enable_indoor_outdoor_functionality = parsed_config_parameters['enable_indoor_outdoor_functionality']
     mqtt_broker_name = parsed_config_parameters['mqtt_broker_name']
+    mqtt_username = parsed_config_parameters['mqtt_username']
+    mqtt_password = parsed_config_parameters['mqtt_password']
     enable_luftdaten = parsed_config_parameters['enable_luftdaten']
     enable_climate_and_gas_logging = parsed_config_parameters['enable_climate_and_gas_logging']
     enable_particle_sensor = parsed_config_parameters['enable_particle_sensor']
@@ -123,7 +125,7 @@ def retrieve_config():
     return (temp_offset, altitude, enable_display, enable_adafruit_io, aio_user_name, aio_key, aio_feed_window, aio_feed_sequence,
             aio_household_prefix, aio_location_prefix, aio_package, enable_send_data_to_homemanager,
             enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality,
-            mqtt_broker_name, enable_luftdaten, enable_climate_and_gas_logging, enable_particle_sensor, enable_eco2_tvoc, gas_daily_r0_calibration_hour,
+            mqtt_broker_name,mqtt_username,mqtt_password, enable_luftdaten, enable_climate_and_gas_logging, enable_particle_sensor, enable_eco2_tvoc, gas_daily_r0_calibration_hour,
             reset_gas_sensor_calibration, incoming_temp_hum_mqtt_topic, incoming_temp_hum_mqtt_sensor_name, incoming_barometer_mqtt_topic, incoming_barometer_sensor_id,
             indoor_outdoor_function, mqtt_client_name, outdoor_mqtt_topic, indoor_mqtt_topic, city_name, time_zone, custom_locations)
 
@@ -1388,6 +1390,8 @@ logging.info("Wi-Fi: {}\n".format("connected" if check_wifi() else "disconnected
 # Set up mqtt if required
 if enable_send_data_to_homemanager or enable_receive_data_from_homemanager or enable_indoor_outdoor_functionality:
     es = ExternalSensors()
+    if mqtt_username and mqtt_password:
+        client.username_pw_set(mqtt_username, mqtt_password)
     client = mqtt.Client(mqtt_client_name)
     client.on_connect = on_connect
     client.on_message = on_message
