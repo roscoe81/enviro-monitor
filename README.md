@@ -17,7 +17,9 @@ Likewise, testing and regression analysis was used to provide time-based drift, 
 
 ## Note: Even though the accuracy has been improved, the readings are still not thoroughly and accurately calibrated and should not be relied upon for critical purposes or applications.
 
-mqtt support is provided to use external temperature and humidity sensors (for data logging and regression analysis), interworking between the monitor and a [home automation system](https://github.com/roscoe81/Home-Manager) and to support interworking between outdoor and indoor sensors. That latter interworking allows the display of an indoor unit to cycle between indoor and outdoor readings.
+mqtt support is provided to use external temperature and humidity sensors (for data logging and regression analysis), interworking between the monitor and a [home automation system](https://github.com/roscoe81/Home-Manager) and to support interworking between outdoor and indoor Enviro Monitors. That latter interworking allows the display of an indoor Enviro Monitor to cycle between indoor and outdoor readings.
+
+An alternative to using mqtt-linked indoor and outdoor Enviro Monitors to get outdoor readings on an indoor Enviro Monitor, is to configure the indoor Enviro Monitor to capture Luftdaten readings or Adafruit IO feeds from another Enviro Monitor.
 
 [Luftdaten]( https://github.com/pimoroni/enviroplus-python/blob/master/examples/luftdaten.py)  interworking is essentially unchanged, other than the ability to use external temperature and humidity sensors via mqtt messages.
 
