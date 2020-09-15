@@ -1,6 +1,6 @@
-{"version": "Base-5.19",
+{"version": "Base-5.23",
 "temp_offset": 0,
-"altitude": 20,
+"altitude": 23,
 "enable_display": true,
 "enable_adafruit_io": false,
 "aio_user_name": "<>",
@@ -13,7 +13,11 @@
 "enable_send_data_to_homemanager": false,
 "enable_receive_data_from_homemanager": false,
 "enable_indoor_outdoor_functionality": false,
+"outdoor_source_type": "<>",
+"outdoor_source_id": {},
 "mqtt_broker_name": "<>",
+"mqtt_user_name": "<>",
+"mqtt_password": "<>",
 "enable_luftdaten": false,
 "enable_climate_and_gas_logging": true,
 "enable_particle_sensor": true,
@@ -30,4 +34,4 @@
 "indoor_mqtt_topic": "<>",
 "city_name": "Sydney",
 "time_zone": "Australia/Sydney",
-"custom_locations": ["Townsville, Australia, Queensland, -19.26639, 146.80569"]}
+"custom_locations": ["Townsville, Australia, Queensland, -19.26639, 146.80569", "Thredbo, Australia, Sydney, -36.4999989, 148.2999988"]}
