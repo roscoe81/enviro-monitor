@@ -39,7 +39,7 @@ except ImportError:
     from smbus import SMBus
 import logging
 
-monitor_version = "5.23 - Gen"
+monitor_version = "5.24 - Gen"
 
 logging.basicConfig(
     format='%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s',
@@ -642,7 +642,7 @@ def on_connect(client, userdata, flags, rc):
     if enable_receive_data_from_homemanager:
         client.subscribe(incoming_temp_hum_mqtt_topic) # Subscribe to the topic for the external temp/hum data
         client.subscribe(incoming_barometer_mqtt_topic) # Subscribe to the topic for the external barometer data
-    if enable_indoor_outdoor_functionality and indoor_outdoor_function == 'Indoor':
+    if enable_indoor_outdoor_functionality and indoor_outdoor_function == 'Indoor' and outdoor_source_type == "Enviro":
         client.subscribe(outdoor_mqtt_topic)
 
 def on_message(client, userdata, msg):
@@ -1277,10 +1277,11 @@ def update_aio(mqtt_values, forecast, aio_format, aio_forecast_text_format, aio_
         if feed_resp:
             aio_resp = True
         previous_aio_air_quality_text = combined_air_quality_text
-    if enable_indoor_outdoor_functionality == False or enable_indoor_outdoor_functionality and\
-            indoor_outdoor_function == "Outdoor":
-        # If indoor_outdoor_functionality is enabled, only send the forecast from the outdoor unit
-        # and only if it's been updated
+    if not enable_indoor_outdoor_functionality or enable_indoor_outdoor_functionality and\
+            indoor_outdoor_function == "Outdoor" or enable_indoor_outdoor_functionality and\
+            indoor_outdoor_function == "Indoor" and outdoor_source_type != "Enviro":
+        # If indoor_outdoor_functionality is enabled, only send an updated forecast from the outdoor unit
+        # unless the outdoor source type in not an Enviro Monitor
         aio_forecast_text = forecast.replace("\n", " ")
         if (aio_package == 'Premium' or aio_package == 'Premium Plus')\
                 and aio_forecast_text != previous_aio_forecast_text:
@@ -1300,9 +1301,12 @@ def update_aio(mqtt_values, forecast, aio_format, aio_forecast_text_format, aio_
     for feed in aio_format: # aio_format varies, based on the relevant aio_package
         if aio_format[feed][1]: # Send the first value of the list if sending humidity or barometer data
             if (feed == "Hum" or
-                feed == "Bar" and enable_indoor_outdoor_functionality == False or
-                feed == "Bar" and enable_indoor_outdoor_functionality and indoor_outdoor_function == "Outdoor"):
-                # If indoor_outdoor_functionality is enabled, only send outdoor barometer feed
+                feed == "Bar" and not enable_indoor_outdoor_functionality or
+                feed == "Bar" and enable_indoor_outdoor_functionality and indoor_outdoor_function == "Outdoor" or
+                feed == "Bar" and enable_indoor_outdoor_functionality and indoor_outdoor_function == "Indoor" and
+                outdoor_source_type != "Enviro"):
+                # If indoor_outdoor_functionality is enabled, only send outdoor barometer feed unless
+                # the outdoor source type in not an Enviro Monitor
                 print('Sending', feed, 'Feed')
                 feed_resp = send_data_to_aio(aio_format[feed][0], mqtt_values[feed][0])
                 if feed_resp:
@@ -1706,6 +1710,7 @@ short_update_delay = 150 # Time between short updates
 previous_aio_update_minute = None # Used to record the last minute that the aio feeds were updated
 long_update_time = 0 # Set the long update time baseline (for all other updates)
 long_update_delay = 300 # Time between long updates
+long_update_toggle = False # Allows external outdoor Luftdaten or Adafruit updates to be undertaken every second long-update cycle
 startup_stabilisation_time = 300 # Time to allow sensor stabilisation before sending external updates
 start_time = time.time()
 barometer_available_time = start_time + 10945 # Initialise the time until a forecast is available (3 hours + the time
@@ -1970,16 +1975,55 @@ try:
                 if (enable_indoor_outdoor_functionality and indoor_outdoor_function == 'Indoor'
                         and (outdoor_source_type == 'Luftdaten' or outdoor_source_type == 'Adafruit IO')): # Capture
                     # outdoor data via Luftdaten or Adafruit IO
-                    outdoor_reading_captured = False
-                    external_outdoor_data = capture_external_outdoor_data(outdoor_source_type, outdoor_source_id,
-                                                                          outdoor_aio_readings)
-                    if external_outdoor_data != {}:
-                        print('External Outdoor Data', external_outdoor_data)
-                        if outdoor_source_type == 'Luftdaten':
-                            if "Temp" in external_outdoor_data:
-                                outdoor_data["Temp"][1] = external_outdoor_data["Temp"]
-                                outdoor_disp_values["Temp"] = outdoor_disp_values["Temp"][1:] +\
-                                                              [[outdoor_data["Temp"][1], 1]]
+                    long_update_toggle = not long_update_toggle
+                    if long_update_toggle: # Only capture outdoor data via Luftdaten or Adafruit IO on every second cycle
+                        outdoor_reading_captured = False
+                        external_outdoor_data = capture_external_outdoor_data(outdoor_source_type, outdoor_source_id,
+                                                                              outdoor_aio_readings)
+                        if external_outdoor_data != {}:
+                            print('External Outdoor Data', external_outdoor_data)
+                            if outdoor_source_type == 'Luftdaten':
+                                if "Temp" in external_outdoor_data:
+                                    outdoor_data["Temp"][1] = external_outdoor_data["Temp"]
+                                    outdoor_disp_values["Temp"] = outdoor_disp_values["Temp"][1:] +\
+                                                                  [[outdoor_data["Temp"][1], 1]]
+                                    if outdoor_maxi_temp == None:
+                                        outdoor_maxi_temp = outdoor_data["Temp"][1]
+                                    elif outdoor_data["Temp"][1] > outdoor_maxi_temp:
+                                        outdoor_maxi_temp = outdoor_data["Temp"][1]
+                                    if outdoor_mini_temp == None:
+                                        outdoor_mini_temp = outdoor_data["Temp"][1]
+                                    elif outdoor_data["Temp"][1] < outdoor_mini_temp:
+                                        outdoor_mini_temp = outdoor_data["Temp"][1]
+                                if "Hum" in external_outdoor_data:
+                                    outdoor_data["Hum"][1] = external_outdoor_data["Hum"]
+                                    outdoor_disp_values["Hum"] = outdoor_disp_values["Hum"][1:] +\
+                                                                 [[outdoor_data["Hum"][1], 1]]
+                                if "P10" in external_outdoor_data:
+                                    outdoor_data["P10"][1] = external_outdoor_data["P10"]
+                                    outdoor_disp_values["P10"] = outdoor_disp_values["P10"][1:] +\
+                                                                 [[outdoor_data["P10"][1], 1]]
+                                if "P2.5" in external_outdoor_data:
+                                    outdoor_data["P2.5"][1] = external_outdoor_data["P2.5"]
+                                    outdoor_disp_values["P2.5"] = outdoor_disp_values["P2.5"][1:] +\
+                                                                  [[outdoor_data["P2.5"][1], 1]]
+                                outdoor_data["Bar"][1] = own_data["Bar"][1] # Use internal air pressure data
+                                outdoor_data["P1"][1] = None
+                                outdoor_data["Oxi"][1] = None
+                                outdoor_data["Red"][1] = None
+                                outdoor_data["NH3"][1] = None
+                                outdoor_data["Lux"][1] = None
+                                outdoor_gas_sensors_warm = False
+                                outdoor_reading_captured = True
+                                outdoor_reading_captured_time = time.time()
+                            elif outdoor_source_type == 'Adafruit IO':
+                                for reading in outdoor_aio_readings:
+                                    if reading in external_outdoor_data:
+                                        outdoor_reading_captured = True
+                                        outdoor_reading_captured_time = time.time()
+                                        outdoor_data[reading][1] = external_outdoor_data[reading]
+                                        outdoor_disp_values[reading] = outdoor_disp_values[reading][1:] + [
+                                            [outdoor_data[reading][1], 1]]
                                 if outdoor_maxi_temp == None:
                                     outdoor_maxi_temp = outdoor_data["Temp"][1]
                                 elif outdoor_data["Temp"][1] > outdoor_maxi_temp:
@@ -1988,48 +2032,12 @@ try:
                                     outdoor_mini_temp = outdoor_data["Temp"][1]
                                 elif outdoor_data["Temp"][1] < outdoor_mini_temp:
                                     outdoor_mini_temp = outdoor_data["Temp"][1]
-                            if "Hum" in external_outdoor_data:
-                                outdoor_data["Hum"][1] = external_outdoor_data["Hum"]
-                                outdoor_disp_values["Hum"] = outdoor_disp_values["Hum"][1:] +\
-                                                             [[outdoor_data["Hum"][1], 1]]
-                            if "P10" in external_outdoor_data:
-                                outdoor_data["P10"][1] = external_outdoor_data["P10"]
-                                outdoor_disp_values["P10"] = outdoor_disp_values["P10"][1:] +\
-                                                             [[outdoor_data["P10"][1], 1]]
-                            if "P2.5" in external_outdoor_data:
-                                outdoor_data["P2.5"][1] = external_outdoor_data["P2.5"]
-                                outdoor_disp_values["P2.5"] = outdoor_disp_values["P2.5"][1:] +\
-                                                              [[outdoor_data["P2.5"][1], 1]]
-                            outdoor_data["Bar"][1] = own_data["Bar"][1] # Use internal air pressure data
-                            outdoor_data["P1"][1] = None
-                            outdoor_data["Oxi"][1] = None
-                            outdoor_data["Red"][1] = None
-                            outdoor_data["NH3"][1] = None
-                            outdoor_data["Lux"][1] = None
-                            outdoor_gas_sensors_warm = False
-                            outdoor_reading_captured = True
-                            outdoor_reading_captured_time = time.time()
-                        elif outdoor_source_type == 'Adafruit IO':
-                            for reading in outdoor_aio_readings:
-                                if reading in external_outdoor_data:
-                                    outdoor_reading_captured = True
-                                    outdoor_reading_captured_time = time.time()
-                                    outdoor_data[reading][1] = external_outdoor_data[reading]
-                                    outdoor_disp_values[reading] = outdoor_disp_values[reading][1:] + [
-                                        [outdoor_data[reading][1], 1]]
-                            if outdoor_maxi_temp == None:
-                                outdoor_maxi_temp = outdoor_data["Temp"][1]
-                            elif outdoor_data["Temp"][1] > outdoor_maxi_temp:
-                                outdoor_maxi_temp = outdoor_data["Temp"][1]
-                            if outdoor_mini_temp == None:
-                                outdoor_mini_temp = outdoor_data["Temp"][1]
-                            elif outdoor_data["Temp"][1] < outdoor_mini_temp:
-                                outdoor_mini_temp = outdoor_data["Temp"][1]
-                            outdoor_data["Lux"][1] = None
-                            outdoor_data["Bar"][1] = own_data["Bar"][1] # Use internal air pressure data
-                            outdoor_gas_sensors_warm = True
-                    else:
-                        print("No external outdoor data captured")
+                                outdoor_data["Lux"][1] = None
+                                outdoor_data["Bar"][1] = own_data["Bar"][1] # Use internal air pressure data
+                                outdoor_gas_sensors_warm = True
+                        else:
+                            print("No external outdoor data captured")
+                            
                 # Write to the persistent data log
                 if enable_eco2_tvoc: # Update and add eco2_tvoc_baseline if CO2/TVOC is enabled and the SGP30 sensor
                     # has been active for more than 12 hours, or there's a valid baseline
@@ -2127,9 +2135,9 @@ try:
             print("Communications has been lost for more than " + str(int(comms_failure_tolerance/60)) +
                   " minutes. System will reboot via watchdog")
         # Outdoor Sensor Comms Check
-        if time.time() - outdoor_reading_captured_time > long_update_delay * 2:
+        if time.time() - outdoor_reading_captured_time > long_update_delay * 4:
             outdoor_reading_captured = False # Reset outdoor reading captured flag if comms with the
-            # outdoor sensor is lost so that old outdoor data is not displayed
+            # outdoor sensor is lost for more than 20 minutes so that old outdoor data is not displayed
             
         # Calibrate gas sensors daily at time set by gas_daily_r0_calibration_hour,
         # using average of daily readings over a week if not already done in the current day and if warmup
