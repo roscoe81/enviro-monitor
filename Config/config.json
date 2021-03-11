@@ -1,4 +1,4 @@
-{"version": "Base-5.23",
+{"version": "Base-6.x",
 "temp_offset": 0,
 "altitude": 23,
 "enable_display": true,
@@ -15,11 +15,12 @@
 "enable_indoor_outdoor_functionality": false,
 "outdoor_source_type": "<>",
 "outdoor_source_id": {},
+"enable_noise": false,
 "mqtt_broker_name": "<>",
 "mqtt_user_name": "<>",
 "mqtt_password": "<>",
 "enable_luftdaten": false,
-"enable_climate_and_gas_logging": true,
+"enable_climate_and_gas_logging": false,
 "enable_particle_sensor": true,
 "enable_eco2_tvoc": false,
 "gas_daily_r0_calibration_hour": 3,
@@ -34,4 +35,4 @@
 "indoor_mqtt_topic": "<>",
 "city_name": "Sydney",
 "time_zone": "Australia/Sydney",
-"custom_locations": ["Townsville, Australia, Queensland, -19.26639, 146.80569", "Thredbo, Australia, Sydney, -36.4999989, 148.2999988"]}
+"custom_locations": ["Townsville, Australia, Queensland, -19.26639, 146.80569", "Thredbo, Australia, Sydney, -36.4999989, 148.2999988", "Romsey, Australia, Victoria, -37.3581082, 144.7365582"]}

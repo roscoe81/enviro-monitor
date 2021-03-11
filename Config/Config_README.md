@@ -35,6 +35,8 @@ The config.json file is used to set the Enviro Monitor’s configuration. It has
 
 "outdoor_source_id": Sets the sensor id when using Luftdaten or Adafruit IO to capture outdoor readings. Format is {"Climate": id, "PM": id} for Luftdaten or {"User Name": "<aio_user_name>", "Key": "<aio_key>", "Household Name": "<aio_household_name>"} for Adafruit IO
 
+"enable_noise": Enables Noise Level measurements (only after successfully completing the Noise Setup procedure) if set to true, otherwise set to false
+
 "mqtt_broker_name": Sets the host name of the mqtt broker if mqtt messages are used for Home Automation and/or indoor/outdoor functionality. Set to “” if no mqtt messaging is required
 
 "mqtt_user_name": Allows the option to set an mqtt user name

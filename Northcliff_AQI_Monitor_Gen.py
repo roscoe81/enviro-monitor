@@ -39,14 +39,17 @@ except ImportError:
     from smbus import SMBus
 import logging
 
-monitor_version = "5.24 - Gen"
+monitor_version = "6.4g - Gen"
 
 logging.basicConfig(
     format='%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s',
     level=logging.INFO,
     datefmt='%Y-%m-%d %H:%M:%S')
-logging.info("""Northcliff_Environment_Monitor.py - Pimoroni Enviro+ (and optional SGP30) sensor capture and display,
- plus external sensor capture and Luftdaten, mqtt and Adafruit IO Updates
+logging.info("""Northcliff_Environment_Monitor.py - Pimoroni Enviro+ with noise measurement (and optional SGP30) sensor capture and display.
+ Supports external sensor capture and Luftdaten, mqtt and Adafruit IO Updates
+ Disclaimer: The noise measurement is not to be used for accurate sound level measurements.
+ It only has a limited method of frequency compensation and requires calibration.
+ 
 #Note: you'll need to register with Luftdaten at:
 #https://meine.luftdaten.info/ and enter your Raspberry Pi
 #serial number that's displayed on the Enviro plus LCD along
@@ -131,6 +134,10 @@ def retrieve_config():
         # {"User Name": "<aio_user_name>", "Key": "<aio_key>", "Household Name": "<aio_household_name>"} for Adafruit IO
     else:
         outdoor_source_id = {}
+    if 'enable_noise' in parsed_config_parameters:
+        enable_noise = parsed_config_parameters['enable_noise']
+    else:
+        enable_noise = False
     incoming_temp_hum_mqtt_topic = parsed_config_parameters['incoming_temp_hum_mqtt_topic']
     incoming_temp_hum_mqtt_sensor_name = parsed_config_parameters['incoming_temp_hum_mqtt_sensor_name']
     incoming_barometer_mqtt_topic = parsed_config_parameters['incoming_barometer_mqtt_topic']
@@ -145,7 +152,7 @@ def retrieve_config():
     return (temp_offset, altitude, enable_display, enable_adafruit_io, aio_user_name, aio_key, aio_feed_window,
             aio_feed_sequence, aio_household_prefix, aio_location_prefix, aio_package, enable_send_data_to_homemanager,
             enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality,
-            mqtt_broker_name, mqtt_username, mqtt_password, outdoor_source_type, outdoor_source_id, enable_luftdaten,
+            mqtt_broker_name, mqtt_username, mqtt_password, outdoor_source_type, outdoor_source_id, enable_noise, enable_luftdaten,
             enable_climate_and_gas_logging, enable_particle_sensor, enable_eco2_tvoc, gas_daily_r0_calibration_hour,
             reset_gas_sensor_calibration, incoming_temp_hum_mqtt_topic, incoming_temp_hum_mqtt_sensor_name,
             incoming_barometer_mqtt_topic, incoming_barometer_sensor_id, indoor_outdoor_function, mqtt_client_name,
@@ -156,7 +163,7 @@ def retrieve_config():
 (temp_offset, altitude, enable_display, enable_adafruit_io, aio_user_name, aio_key, aio_feed_window, aio_feed_sequence,
   aio_household_prefix, aio_location_prefix, aio_package, enable_send_data_to_homemanager,
   enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality, mqtt_broker_name,
-  mqtt_username, mqtt_password, outdoor_source_type, outdoor_source_id, enable_luftdaten,
+  mqtt_username, mqtt_password, outdoor_source_type, outdoor_source_id, enable_noise, enable_luftdaten,
   enable_climate_and_gas_logging,  enable_particle_sensor, enable_eco2_tvoc, gas_daily_r0_calibration_hour,
   reset_gas_sensor_calibration, incoming_temp_hum_mqtt_topic, incoming_temp_hum_mqtt_sensor_name,
   incoming_barometer_mqtt_topic, incoming_barometer_sensor_id, indoor_outdoor_function, mqtt_client_name,
@@ -170,7 +177,11 @@ if enable_particle_sensor:
     # Create a PMS5003 instance
     pms5003 = PMS5003()
     time.sleep(1)
-            
+
+if enable_noise:
+    import sounddevice as sd
+    import numpy
+               
 def read_pm_values(luft_values, mqtt_values, own_data, own_disp_values):
     if enable_particle_sensor:
         try:
@@ -427,7 +438,7 @@ def log_climate_and_gas(run_time, own_data, raw_red_rs, raw_oxi_rs, raw_nh3_rs, 
                                 'Red': own_data["Red"][1], 'NH3': own_data["NH3"][1], 'Raw OxiRS': raw_oxi_rs,
                                 'Raw RedRS': raw_red_rs, 'Raw NH3RS': raw_nh3_rs}
     print('Logging Environment Data.', environment_log_data)
-    with open('<Your environment log file location>', 'a') as f:
+    with open('/home/pi/AQI_Logs/environment_log_data.txt', 'a') as f:
         f.write(',\n' + json.dumps(environment_log_data))
     
 # Calculate Air Quality Level
@@ -757,14 +768,63 @@ def display_all_aq(location, data, data_in_display_all_aq, enable_eco2_tvoc):
                     rgb = palette[j+1]
         draw.text((x, y), message, font=font, fill=rgb)
     disp.display(img)
+        
+def display_noise(location, selected_display_mode, noise_level, noise_max, noise_max_datetime, display_changed, last_page, noise_values, freq_values):
+    draw.rectangle((0, 0, WIDTH, HEIGHT), noise_back_colour)
+    if noise_level<=noise_thresholds[0]:
+        message_colour = (0, 255, 0)
+    elif noise_thresholds[0]<noise_level<=noise_thresholds[1]:
+        message_colour=(255, 255, 0)
+    else:
+        message_colour = (255, 0, 0)
+    if selected_display_mode == "Noise Reading":
+        draw.text((5,0), location + " Noise Level", font=noise_smallfont, fill=message_colour)
+        draw.text((5, 32), f"{noise_level:.1f} dB(A)", font=noise_largefont, fill=message_colour)
+        disp.display(img)
+    elif selected_display_mode == "Noise Level":
+        if noise_max<=noise_thresholds[0]:
+            max_graph_colour = (0, 255, 0)
+        elif noise_thresholds[0]<noise_max<=noise_thresholds[1]:
+            max_graph_colour = (255, 255, 0)
+        else:
+            max_graph_colour = (255, 0, 0)
+        for i in range(len(noise_values)):
+            if noise_values[i][1] == 1:
+                if noise_values[i][0]<=noise_thresholds[0]:
+                    graph_colour = (0, 255, 0)
+                elif noise_thresholds[0]<noise_max<=noise_thresholds[1]:
+                    graph_colour=(255, 255, 0)
+                else:
+                    graph_colour = (255, 0, 0)
+                draw.line((5+i*6, HEIGHT, 5+i*6, HEIGHT - (noise_values[i][0]-35)), fill=graph_colour, width=5)   
+        draw.text((5,0), location + " Noise Level", font=noise_smallfont, fill=message_colour)
+        if noise_max != 0 and (time.time() - last_page) > 2:
+            draw.line((0, HEIGHT - (noise_max-35), WIDTH, HEIGHT - (noise_max-35)), fill=max_graph_colour, width=1) #Display Max Line
+            if noise_max > 85:
+                text_height = HEIGHT - (noise_max-37)
+            else:
+                text_height = HEIGHT - (noise_max-20)
+            draw.text((0, text_height), f"Max {noise_max:.1f} dB {noise_max_datetime['Time']} {noise_max_datetime['Date']}", font=noise_vsmallfont, fill=max_graph_colour)
+        disp.display(img)
+    else:
+        for i in range(len(freq_values)):
+            if freq_values[i][3] == 1:
+                draw.line((15+i*20, HEIGHT, 15+i*20, HEIGHT - (freq_values[i][2]-35)), fill=(0, 0, 255), width=5)
+                draw.line((10+i*20, HEIGHT, 10+i*20, HEIGHT - (freq_values[i][1]-35)), fill=(0, 255, 0), width=5)
+                draw.line((5+i*20, HEIGHT, 5+i*20, HEIGHT - (freq_values[i][0]-35)), fill=(255, 0, 0), width=5)
+        draw.text((0,0), location + " Noise Bands", font=noise_smallfont, fill=message_colour)
+        disp.display(img) 
 
-def display_results(start_current_display, current_display_is_own, display_modes, indoor_outdoor_display_duration,
-                    own_data, data_in_display_all_aq, outdoor_data, outdoor_reading_captured, own_disp_values,
-                    outdoor_disp_values, delay, last_page, mode, WIDTH, valid_barometer_history, forecast,
-                    barometer_available_time, barometer_change, barometer_trend, icon_forecast, maxi_temp, mini_temp,
-                    air_quality_data, air_quality_data_no_gas, gas_sensors_warm, outdoor_gas_sensors_warm,
-                    enable_display, palette, enable_adafruit_io, aio_user_name, aio_household_prefix, enable_eco2_tvoc,
-                    outdoor_source_type):
+def display_results(start_current_display, current_display_is_own, display_modes,
+                                indoor_outdoor_display_duration, own_data, data_in_display_all_aq, outdoor_data,
+                                outdoor_reading_captured, own_disp_values, outdoor_disp_values, delay, last_page, mode,
+                                WIDTH, valid_barometer_history, forecast, barometer_available_time, barometer_change,
+                                barometer_trend, icon_forecast, maxi_temp, mini_temp, air_quality_data,
+                                air_quality_data_no_gas, gas_sensors_warm, outdoor_gas_sensors_warm, enable_display,
+                                palette, enable_adafruit_io, aio_user_name, aio_household_prefix, enable_eco2_tvoc,
+                                outdoor_source_type, own_noise_level, own_noise_max, own_noise_max_datetime,
+                                own_noise_values, own_noise_freq_values, outdoor_noise_level, outdoor_noise_max,
+                                outdoor_noise_max_datetime, outdoor_noise_values, outdoor_noise_freq_values):
     # Allow for display selection if display is enabled,
     # else only display the serial number on a background colour based on max_aqi
     if enable_display:
@@ -774,6 +834,10 @@ def display_results(start_current_display, current_display_is_own, display_modes
             mode += 1
             mode %= len(display_modes)
             print('Mode', mode)
+            last_page = time.time()
+            display_changed = True
+        else:
+            display_changed = False
         selected_display_mode = display_modes[mode]
         if enable_indoor_outdoor_functionality and indoor_outdoor_function == 'Indoor':
             if outdoor_reading_captured:
@@ -827,23 +891,31 @@ def display_results(start_current_display, current_display_is_own, display_modes
             if current_display_is_own and indoor_outdoor_function == 'Indoor':
                 display_icon_weather_aqi('IN', own_data, barometer_trend, icon_forecast, maxi_temp, mini_temp,
                                          air_quality_data,
-                                         air_quality_data_no_gas, icon_air_quality_levels, gas_sensors_warm)
+                                         air_quality_data_no_gas, icon_air_quality_levels, gas_sensors_warm, own_noise_level, own_noise_max)
             elif current_display_is_own and indoor_outdoor_function == 'Outdoor':
                 display_icon_weather_aqi('OUT', own_data, barometer_trend, icon_forecast, maxi_temp, mini_temp,
                                          air_quality_data,
-                                         air_quality_data_no_gas, icon_air_quality_levels, gas_sensors_warm)
+                                         air_quality_data_no_gas, icon_air_quality_levels, gas_sensors_warm, own_noise_level, own_noise_max)
             else:
                 display_icon_weather_aqi('OUT', outdoor_data, barometer_trend, icon_forecast, outdoor_maxi_temp,
                                          outdoor_mini_temp,
                                          air_quality_data, air_quality_data_no_gas, icon_air_quality_levels,
-                                         outdoor_gas_sensors_warm)
+                                         outdoor_gas_sensors_warm, outdoor_noise_level, outdoor_noise_max)
+        elif "Noise" in selected_display_mode:
+            if selected_display_mode == "Noise Level" and display_changed:
+                own_noise_max = 0 # Reset Max Noise Reading when first entering "Noise Level Mode"
+            if current_display_is_own:
+                display_noise(indoor_outdoor_function, selected_display_mode, own_noise_level, own_noise_max, own_noise_max_datetime, display_changed, last_page, own_noise_values, own_noise_freq_values)
+            elif not current_display_is_own and indoor_outdoor_function == 'Indoor' and outdoor_noise_level == 0: # Don't display outdoor noise levels on indoor unit when there are no outdoor noise readings
+                display_noise("Indoor", selected_display_mode, own_noise_level, own_noise_max, own_noise_max_datetime, display_changed, last_page, own_noise_values, own_noise_freq_values)
+            else:
+                display_noise("Outdoor", selected_display_mode, outdoor_noise_level, outdoor_noise_max, outdoor_noise_max_datetime, display_changed, last_page, outdoor_noise_values, outdoor_noise_freq_values)
         else:
             pass
     else:
         disabled_display(gas_sensors_warm, air_quality_data, air_quality_data_no_gas, own_data, palette,
                          enable_adafruit_io, aio_user_name, aio_household_prefix)
-    last_page = time.time()
-    return last_page, mode, start_current_display, current_display_is_own
+    return last_page, mode, start_current_display, current_display_is_own, own_noise_max
 
 class ExternalSensors(object): # Handles the external temp/hum/bar sensors
     def __init__(self):
@@ -1191,7 +1263,7 @@ def describe_humidity(humidity):
         description = "dry"
     return description
 def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, maxi_temp, mini_temp, air_quality_data,
-                             air_quality_data_no_gas, icon_air_quality_levels, gas_sensors_warm):
+                             air_quality_data_no_gas, icon_air_quality_levels, gas_sensors_warm, noise_level, noise_max):
     progress, period, day, local_dt = sun_moon_time(city_name, time_zone)
     # Calculate AQI
     max_aqi = max_aqi_level_factor(gas_sensors_warm, air_quality_data, air_quality_data_no_gas, data)
@@ -1239,6 +1311,24 @@ def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, max
     img = overlay_text(img, (WIDTH - margin - 1, 48 + spacing), pressure_desc, font_sm, align_right=True, rectangle=True)
     pressure_icon = Image.open(path + "/icons/weather-" + pressure_desc.lower() +  ".png")
     img.paste(pressure_icon, (80, 48), mask=pressure_icon)
+    # Noise Level
+    if enable_noise:
+        if noise_level<=noise_thresholds[0]:
+            noise_colour = (0, 255, 0)
+        elif noise_thresholds[0]<noise_level<=noise_thresholds[1]:
+            noise_colour=(255, 255, 0)
+        else:
+            noise_colour = (255, 0, 0)
+        if noise_level != 0:
+            draw = ImageDraw.Draw(img)
+            draw.line((0, HEIGHT, 0, HEIGHT - (noise_level-35)), fill=noise_colour, width=5)
+            if noise_max<=noise_thresholds[0]:
+                max_spl_colour = (0, 255, 0)
+            elif noise_thresholds[0]<noise_max<=noise_thresholds[1]:
+                max_spl_colour=(255, 255, 0)
+            else:
+                max_spl_colour = (255, 0, 0)
+            draw.line((0, HEIGHT - (noise_max-35), 4, HEIGHT - (noise_max-35)), fill=max_spl_colour, width=2) #Display Max Noise Level Line
     # Display image
     disp.display(img)
     
@@ -1247,13 +1337,13 @@ def update_aio(mqtt_values, forecast, aio_format, aio_forecast_text_format, aio_
                aio_air_quality_level_format, aio_air_quality_text_format, own_data, icon_air_quality_levels,
                aio_forecast, aio_package, gas_sensors_warm, air_quality_data, air_quality_data_no_gas,
                previous_aio_air_quality_level, previous_aio_air_quality_text, previous_aio_forecast_text,
-               previous_aio_forecast):
+               previous_aio_forecast, own_aio_max_noise):
     aio_resp = False # Set to True when there is at least one successful aio feed response
     aio_json = {}
     aio_path = '/feeds/'
-    if gas_sensors_warm and (aio_package == "Premium" or aio_package == "Premium Plus"):
+    if gas_sensors_warm and (aio_package == "Premium" or aio_package == "Premium Plus" or aio_package == "Premium Noise" or aio_package == "Premium Plus Noise"):
         print("Sending", aio_package, "feeds to Adafruit IO with Gas Data")
-    elif gas_sensors_warm == False and (aio_package == "Premium" or aio_package == "Premium Plus"):
+    elif gas_sensors_warm == False and (aio_package == "Premium" or aio_package == "Premium Plus" or aio_package == "Premium Noise" or aio_package == "Premium Plus Noise"):
         print("Sending", aio_package, "feeds to Adafruit IO without Gas Data")
     else:
         print("Sending", aio_package, "package feeds to Adafruit IO")
@@ -1264,15 +1354,15 @@ def update_aio(mqtt_values, forecast, aio_format, aio_forecast_text_format, aio_
     combined_air_quality_text = icon_air_quality_levels[combined_air_quality_level] + ": " +\
                                 combined_air_quality_level_factor
     if combined_air_quality_level != previous_aio_air_quality_level: # Only update if it's changed
-        print('Sending Air Quality Level Feed')
+        #print('Sending Air Quality Level Feed')
         aio_json['value'] = combined_air_quality_level
         feed_resp = send_data_to_aio(aio_air_quality_level_format, combined_air_quality_level) # Used by all aio packages
         if feed_resp:
             aio_resp = True
         previous_aio_air_quality_level = combined_air_quality_level
-    if (aio_package == 'Premium Plus' or aio_package == 'Premium' or aio_package == 'Basic Air') and\
-            combined_air_quality_text != previous_aio_air_quality_text: # Only update if it's changed
-        print('Sending Air Quality Text Feed')
+    if (aio_package == 'Premium Plus' or aio_package == 'Premium' or aio_package == 'Basic Air' or aio_package == "Premium Noise"\
+        or aio_package == "Premium Plus Noise") and combined_air_quality_text != previous_aio_air_quality_text: # Only update if it's changed
+        #print('Sending Air Quality Text Feed')
         feed_resp = send_data_to_aio(aio_air_quality_text_format, combined_air_quality_text)
         if feed_resp:
             aio_resp = True
@@ -1283,16 +1373,16 @@ def update_aio(mqtt_values, forecast, aio_format, aio_forecast_text_format, aio_
         # If indoor_outdoor_functionality is enabled, only send an updated forecast from the outdoor unit
         # unless the outdoor source type in not an Enviro Monitor
         aio_forecast_text = forecast.replace("\n", " ")
-        if (aio_package == 'Premium' or aio_package == 'Premium Plus')\
+        if (aio_package == 'Premium' or aio_package == 'Premium Plus' or aio_package == "Premium Noise" or aio_package == "Premium Plus Noise")\
                 and aio_forecast_text != previous_aio_forecast_text:
-            print('Sending Weather Forecast Text Feed')
+            #print('Sending Weather Forecast Text Feed')
             feed_resp = send_data_to_aio(aio_forecast_text_format, aio_forecast_text)
             if feed_resp:
                 aio_resp = True
             previous_aio_forecast_text = aio_forecast_text
-        if (aio_package == 'Premium' or aio_package == 'Basic Combo' or aio_package == 'Premium Plus') and\
-                aio_forecast != previous_aio_forecast:
-            print('Sending Weather Forecast Icon Feed')
+        if (aio_package == 'Premium' or aio_package == 'Basic Combo' or aio_package == 'Premium Plus' or aio_package == "Premium Noise"\
+            or aio_package == "Premium Plus Noise") and aio_forecast != previous_aio_forecast:
+            #print('Sending Weather Forecast Icon Feed')
             feed_resp = send_data_to_aio(aio_forecast_icon_format, aio_forecast)
             if feed_resp:
                 aio_resp = True
@@ -1307,14 +1397,19 @@ def update_aio(mqtt_values, forecast, aio_format, aio_forecast_text_format, aio_
                 outdoor_source_type != "Enviro"):
                 # If indoor_outdoor_functionality is enabled, only send outdoor barometer feed unless
                 # the outdoor source type in not an Enviro Monitor
-                print('Sending', feed, 'Feed')
+                #print('Sending', feed, 'Feed')
                 feed_resp = send_data_to_aio(aio_format[feed][0], mqtt_values[feed][0])
                 if feed_resp:
                     aio_resp = True
-        else: # Send the value if sending data other than humidity or barometer
+        elif feed == "Noise":
+            #print('Sending', feed, 'Feed')
+            feed_resp = send_data_to_aio(aio_format[feed][0], own_aio_max_noise)
+            if feed_resp:
+                aio_resp = True
+        else: # Send the value if sending data other than noise, humidity or barometer
             # Only send gas data if the gas sensors are warm and calibrated
             if (feed != "Red" and feed != "Oxi" and feed != "NH3") or mqtt_values['Gas Calibrated']:
-                print('Sending', feed, 'Feed')
+                #print('Sending', feed, 'Feed')
                 feed_resp = send_data_to_aio(aio_format[feed][0], mqtt_values[feed])
                 if feed_resp:
                     aio_resp = True
@@ -1388,6 +1483,33 @@ def capture_external_outdoor_data(outdoor_source_type, outdoor_source_id, outdoo
                                 external_outdoor_data["P10"] = float(outdoor_luft_data[0]
                                                                      ["sensordatavalues"][i]["value"])
     return external_outdoor_data
+        
+def process_noise_frames(captured_recording, frames, time, status):
+    global recording
+    global noise_sample_counter
+    recording = captured_recording
+    noise_sample_counter += 1
+      
+def get_rms_at_frequency_ranges(recording, ranges, noise_sample_rate):
+    """Return the RMS levels of frequencies in the given ranges.
+
+    :param ranges: List of ranges including a start and end range
+
+    """
+    magnitude = numpy.square(numpy.abs(numpy.fft.rfft(recording[:, 0], n=noise_sample_rate)))
+    result = []
+    for r in ranges:
+        start, end = r
+        result.append(numpy.sqrt(numpy.mean(magnitude[start:end])))
+    return result
+
+class NullContextManager(object): # Dummy context manager that's used when noise is disabled
+    def __init__(self, dummy_resource=None):
+        self.dummy_resource = dummy_resource
+    def __enter__(self):
+        return self.dummy_resource
+    def __exit__(self, *args):
+        pass
 
 # Display setup
 delay = 0.5 # Debounce the proximity tap when choosing the data to be displayed
@@ -1441,7 +1563,11 @@ if enable_eco2_tvoc: # eCO2 and TVOC added when enabling the SGP30 sensor
                 "Bar": ["hPa", 0, [980,990,1030,1040], 10], "Lux": ["Lux", 1, [100,1000,12000,30000], 11]}
     data_in_display_all_aq =  ["P1", "P2.5", "P10", "Oxi", "Red", "NH3", "CO2", "VOC"]
     # Defines the order in which display modes are chosen
-    display_modes = ["Icon Weather", "All Air", "P1", "P2.5", "P10", "Oxi", "Red", "NH3", "CO2", "VOC",
+    if enable_noise:
+        display_modes = ["Icon Weather", "All Air", "P1", "P2.5", "P10", "Oxi", "Red", "NH3", "CO2", "VOC",
+                     "Forecast", "Temp", "Hum", "Bar", "Lux", "Noise Reading", "Noise Level", "Noise Frequencies", "Status"]
+    else:
+        display_modes = ["Icon Weather", "All Air", "P1", "P2.5", "P10", "Oxi", "Red", "NH3", "CO2", "VOC",
                      "Forecast", "Temp", "Hum", "Bar", "Lux", "Status"]
 else:
     own_data = {"P1": ["ug/m3", 0, [6,17,27,35], 0], "P2.5": ["ug/m3", 0, [11,35,53,70], 1],
@@ -1451,8 +1577,12 @@ else:
                 "Bar": ["hPa", 0, [980,990,1030,1040], 8], "Lux": ["Lux", 1, [100,1000,12000,30000], 9]}
     data_in_display_all_aq =  ["P1", "P2.5", "P10", "Oxi", "Red", "NH3"]
     # Defines the order in which display modes are chosen
-    display_modes = ["Icon Weather", "All Air", "P1", "P2.5", "P10", "Oxi", "Red", "NH3", "Forecast", "Temp", "Hum",
-                     "Bar", "Lux", "Status"]
+    if enable_noise:
+        display_modes = ["Icon Weather", "All Air", "P1", "P2.5", "P10", "Oxi", "Red", "NH3", "Forecast", "Temp", "Hum",
+                     "Bar", "Lux", "Noise Reading", "Noise Level", "Noise Frequencies", "Status"]
+    else:
+        display_modes = ["Icon Weather", "All Air", "P1", "P2.5", "P10", "Oxi", "Red", "NH3", "CO2", "VOC",
+                     "Forecast", "Temp", "Hum", "Bar", "Lux", "Status"]
 
 # Set up display graph data
 own_disp_values = {}
@@ -1626,6 +1756,18 @@ if enable_adafruit_io:
         aio_air_quality_level_format = aio_feed_prefix + "-air-quality-level"
         aio_air_quality_text_format = aio_feed_prefix + "-air-quality-text"
         aio_version_text_format = aio_feed_prefix + "-version"
+    elif aio_package == "Premium Noise" and enable_noise:
+        aio_format = {'Temp': [aio_feed_prefix + "-temperature", False], 'Hum': [aio_feed_prefix + "-humidity", True],
+                      'Bar': [aio_household_prefix + "-barometer", True], 'Lux': [aio_feed_prefix + "-lux", False],
+                      'P1': [aio_feed_prefix + "-pm1", False],'P2.5': [aio_feed_prefix + "-pm2-dot-5", False],
+                      'P10': [aio_feed_prefix + "-pm10", False], 'Red': [aio_feed_prefix + "-reducing", False],
+                      'Oxi': [aio_feed_prefix + "-oxidising", False], 'NH3': [aio_feed_prefix + "-ammonia", False],
+                      'Noise': [aio_feed_prefix + "-noise", False]}
+        aio_forecast_text_format = aio_household_prefix + "-weather-forecast-text"
+        aio_forecast_icon_format = aio_household_prefix + "-weather-forecast-icon"
+        aio_air_quality_level_format = aio_feed_prefix + "-air-quality-level"
+        aio_air_quality_text_format = aio_feed_prefix + "-air-quality-text"
+        aio_version_text_format = aio_feed_prefix + "-version"
     elif aio_package == "Premium Plus" and enable_eco2_tvoc:
         aio_format = {'Temp': [aio_feed_prefix + "-temperature", False], 'Hum': [aio_feed_prefix + "-humidity", True],
                       'Bar': [aio_household_prefix + "-barometer", True], 'Lux': [aio_feed_prefix + "-lux", False],
@@ -1633,6 +1775,19 @@ if enable_adafruit_io:
                       'P10': [aio_feed_prefix + "-pm10", False], 'Red': [aio_feed_prefix + "-reducing", False],
                       'Oxi': [aio_feed_prefix + "-oxidising", False], 'NH3': [aio_feed_prefix + "-ammonia", False],
                       'CO2': [aio_feed_prefix + "-carbon-dioxide", False], 'VOC': [aio_feed_prefix + "-tvoc", False]}
+        aio_forecast_text_format = aio_household_prefix + "-weather-forecast-text"
+        aio_forecast_icon_format = aio_household_prefix + "-weather-forecast-icon"
+        aio_air_quality_level_format = aio_feed_prefix + "-air-quality-level"
+        aio_air_quality_text_format = aio_feed_prefix + "-air-quality-text"
+        aio_version_text_format = aio_feed_prefix + "-version"
+    elif aio_package == "Premium Plus Noise" and enable_eco2_tvoc and enable_noise:
+        aio_format = {'Temp': [aio_feed_prefix + "-temperature", False], 'Hum': [aio_feed_prefix + "-humidity", True],
+                      'Bar': [aio_household_prefix + "-barometer", True], 'Lux': [aio_feed_prefix + "-lux", False],
+                      'P1': [aio_feed_prefix + "-pm1", False],'P2.5': [aio_feed_prefix + "-pm2-dot-5", False],
+                      'P10': [aio_feed_prefix + "-pm10", False], 'Red': [aio_feed_prefix + "-reducing", False],
+                      'Oxi': [aio_feed_prefix + "-oxidising", False], 'NH3': [aio_feed_prefix + "-ammonia", False],
+                      'CO2': [aio_feed_prefix + "-carbon-dioxide", False], 'VOC': [aio_feed_prefix + "-tvoc", False],
+                      'Noise': [aio_feed_prefix + "-noise", False]}
         aio_forecast_text_format = aio_household_prefix + "-weather-forecast-text"
         aio_forecast_icon_format = aio_household_prefix + "-weather-forecast-icon"
         aio_air_quality_level_format = aio_feed_prefix + "-air-quality-level"
@@ -1681,9 +1836,9 @@ gas_calib_hums = []
 gas_calib_bars = []
 print("Startup R0. Red R0:", round(red_r0, 0), "Oxi R0:", round(oxi_r0, 0), "NH3 R0:", round(nh3_r0, 0))
 # Capture temp/hum/bar to define variables
-gas_calib_temp = first_temperature_reading
-gas_calib_hum = first_humidity_reading
-gas_calib_bar = first_pressure_reading
+gas_calib_temp = round(first_temperature_reading, 1)
+gas_calib_hum = round(first_humidity_reading, 1)
+gas_calib_bar = round(first_pressure_reading, 1)
 gas_sensors_warm = False
 outdoor_gas_sensors_warm = False # Only used for an indoor unit when indoor/outdoor functionality is enabled
 mqtt_values["Gas Calibrated"] = False # Only set to true after the gas sensor warmup time has been completed
@@ -1741,6 +1896,41 @@ if enable_eco2_tvoc: # Set up SGP30 if it's enabled
     sgp30.start_measurement(crude_progress_bar)
     sys.stdout.write('\n')
 
+# Set up Noise Monitor
+own_noise_level = 0
+own_noise_max = 0
+own_noise_max_datetime = None
+own_noise_freq = [0, 0, 0] # Set up spl by frequency list
+own_aio_max_noise = 0
+noise_thresholds = (70, 90)
+own_noise_values = [[0,0] for i in range(26)]
+own_noise_freq_values = [[0,0,0,0] for i in range(8)]
+noise_vsmallfont = ImageFont.truetype(UserFont, 11)
+noise_smallfont = ImageFont.truetype(UserFont, 16)
+noise_mediumfont = ImageFont.truetype(UserFont, 24)
+noise_largefont = ImageFont.truetype(UserFont, 32)
+noise_back_colour = (0, 0, 0)
+outdoor_noise_level = 0
+outdoor_noise_max = 0
+outdoor_noise_max_datetime = None
+outdoor_noise_freq = [0, 0, 0] # Set up spl by frequency list
+outdoor_noise_values = [[0,0] for i in range(26)]
+outdoor_noise_freq_values = [[0,0,0,0] for i in range(8)]
+if enable_noise:
+    mqtt_values["Noise"] = 0
+    mqtt_values["Noise Freq"] = 0
+    noise_ref_level = 0.0015 # Sets quiet level reference baseline for dB(A) measurements. Can be used for sound level baseline calibration
+    global recording
+    recording = []
+    global noise_sample_counter
+    noise_sample_counter = 0
+    noise_previous_sample_count = 0
+    noise_sample_rate = 48000
+    noise_block_size = 12000
+    noise_stream = sd.InputStream(samplerate=noise_sample_rate, channels=1, blocksize = noise_block_size, device = "dmic_sv", callback=process_noise_frames)
+else:
+    noise_stream = NullContextManager() # Dummy Context Manager when noise is disabled
+
 # Capture software and config versions. Used to determine if a mender code or config update has been sent.
 try:
     with open('<Your Mender Software Version File Location Here>', 'r') as f:
@@ -1764,7 +1954,7 @@ except IOError:
 except json.decoder.JSONDecodeError:
     print('Invalid Persistent Data Log File Format. Using Defaults') 
 if "Update Time" in persistent_data_log and "Gas Calib Temp List" in persistent_data_log: # Check that the log has
-    # been updated and has a format > 3.87
+    # been updated and has a format >= 3.87
     if (start_time - persistent_data_log["Update Time"]) < 1200: # Only update non eCO2/TVOC variables if the log was
         # updated < 20 minutes before start-up
         long_update_time = persistent_data_log["Update Time"]
@@ -1797,10 +1987,21 @@ if "Update Time" in persistent_data_log and "Gas Calib Temp List" in persistent_
         mini_temp = persistent_data_log["Mini Temp"]
         last_page = persistent_data_log["Last Page"]
         mode = persistent_data_log["Mode"]
+        if "Own Noise Values" in persistent_data_log: # Capture Noise data if available
+            own_noise_values = persistent_data_log["Own Noise Values"]
+            outdoor_noise_values = persistent_data_log["Outdoor Noise Values"]
+            own_noise_freq_values = persistent_data_log["Own Noise Freq Values"]
+            outdoor_noise_freq_values = persistent_data_log["Outdoor Noise Freq Values"]
+            own_noise_max = persistent_data_log["Own Noise Max"]
+            outdoor_noise_max = persistent_data_log["Outdoor Noise Max"]
+            own_noise_max_datetime = persistent_data_log["Own Noise Max Date Time"]
+            outdoor_noise_max_datetime = persistent_data_log["Outdoor Noise Max Date Time"]
         print('Persistent Data Log retrieved and used')
         print("Recovered R0. Red R0:", round(red_r0, 0), "Oxi R0:", round(oxi_r0, 0), "NH3 R0:", round(nh3_r0, 0))
     else:
         print('Persistent Data Log Too Old. Using Defaults')
+else:
+    print('Invalid Persistent Data Log. Using Defaults')
 if "eCO2 TVOC Baseline" in persistent_data_log and enable_eco2_tvoc: # Capture the SGP30 baseline, if it's available
     # and eCO2 and TVOC are enabled
     eco2_tvoc_baseline = persistent_data_log["eCO2 TVOC Baseline"]
@@ -1819,7 +2020,7 @@ if reset_gas_sensor_calibration: # Uses reset_gas_sensor_calibration in config t
     gas_sensors_warmup_time = startup_stabilisation_time
 
 if enable_adafruit_io: # Send Version info to Adafruit IO
-    if aio_package == "Premium Plus" or aio_package == "Premium":
+    if aio_package == "Premium Plus" or aio_package == "Premium" or aio_package == "Premium Plus Noise" or aio_package == "Premium Noise":
         version_text = "Code: " + startup_mender_software_version + " Config: " + startup_mender_config_version
         print("Sending Startup Versions to Adafruit IO", version_text)
         feed_resp = send_data_to_aio(aio_version_text_format, version_text)
@@ -1830,163 +2031,258 @@ mqtt_values["Forecast"] = {"Valid": valid_barometer_history, "3 Hour Change": ro
 
 # Main loop
 try:
-    while True:       
-        # Read air particle values on every loop
-        luft_values, mqtt_values, own_data, own_disp_values = read_pm_values(luft_values, mqtt_values, own_data,
-                                                                             own_disp_values)
-        
-        # Read climate values, provide external updates and write to watchdog file every 2.5 minutes
-        # (set by short_update_time).
-        run_time = round((time.time() - start_time), 0)
-        time_since_short_update = time.time() - short_update_time
-        if time_since_short_update >= short_update_delay:
-            short_update_time = time.time()
-            # Calibrate gas sensors once after warmup
-            if ((time.time() - start_time) >= gas_sensors_warmup_time) and gas_sensors_warm == False and\
-                    first_climate_reading_done:
-                gas_calib_temp = raw_temp
-                gas_calib_hum = raw_hum
-                gas_calib_bar = raw_barometer
-                red_r0, oxi_r0, nh3_r0 = read_raw_gas()
-                print("Gas Sensor Calibration after Warmup. Red R0:", red_r0, "Oxi R0:", oxi_r0, "NH3 R0:", nh3_r0)
-                print("Gas Calibration Baseline. Temp:", round(gas_calib_temp, 1), "Hum:", round(gas_calib_hum, 0),
-                      "Barometer:", round(gas_calib_bar, 1))
-                reds_r0 = [red_r0] * 7
-                oxis_r0 = [oxi_r0] * 7
-                nh3s_r0 = [nh3_r0] * 7
-                gas_calib_temps = [gas_calib_temp] * 7
-                gas_calib_hums = [gas_calib_hum] * 7
-                gas_calib_bars = [gas_calib_bar] * 7
-                gas_sensors_warm = True               
-            (luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values, raw_red_rs, raw_oxi_rs,
-             raw_nh3_rs, raw_temp, comp_temp, comp_hum, raw_hum, use_external_temp_hum, use_external_barometer,
-             raw_barometer, absolute_hum) = read_climate_gas_values(luft_values, mqtt_values, own_data, maxi_temp,
-                                                                    mini_temp, own_disp_values, gas_sensors_warm,
-                                                                    gas_calib_temp, gas_calib_hum, gas_calib_bar,
-                                                                    altitude, enable_eco2_tvoc)
-            first_climate_reading_done = True
-            print('Luftdaten Values', luft_values)
-            print('mqtt Values', mqtt_values)
-            # Write to the watchdog file unless there is a comms failure for >= comms_failure_tolerance
-            # when both Luftdaten and Adafruit IO arenabled
-            if comms_failure == False:
-                with open('<Your Watchdog File Name Here>', 'w') as f:
-                    f.write('Enviro Script Alive')
-            if enable_luftdaten: # Send data to Luftdaten if enabled
-                luft_resp = send_to_luftdaten(luft_values, id, enable_particle_sensor)
-                #logging.info("Luftdaten Response: {}\n".format("ok" if luft_resp else "failed"))
-                data_sent_to_luftdaten_or_aio = True
-                if luft_resp:
-                    print("Luftdaten update successful. Waiting for next capture cycle")
-                else:
-                    print("Luftdaten update unsuccessful. Waiting for next capture cycle")
-            else:
-                print('Waiting for next capture cycle')
-
-        # Read TVOC and eCO2 every second
-        if enable_eco2_tvoc:
-            time_since_eco2_tvoc = time.time() - eco2_tvoc_update_time
-            if time_since_eco2_tvoc >= 1:
-                eco2_tvoc_update_time = time.time()
-                mqtt_values, own_data, own_disp_values = read_eco2_tvoc_values(mqtt_values, own_data, own_disp_values)    
-
-        # Read and update the barometer log if the first climate reading has been done and the last update was >=
-        # 20 minutes ago
-        if first_climate_reading_done and (time.time() - barometer_log_time) >= 1200:
-            if barometer_log_time == 0: # If this is the first barometer log, record the time that a forecast will be
-                # available (3 hours)
-                barometer_available_time = time.time() + 10800
-            barometer_history, barometer_change, valid_barometer_history, barometer_log_time, forecast,\
-            barometer_trend, icon_forecast, domoticz_forecast, aio_forecast = log_barometer(own_data['Bar'][1],
-                                                                                            barometer_history)
-            mqtt_values["Forecast"] = {"Valid": valid_barometer_history, "3 Hour Change": round(barometer_change, 1),
-                                       "Forecast": forecast.replace("\n", " ")}
-            mqtt_values["Bar"][1] = domoticz_forecast # Add Domoticz Weather Forecast
-            print('Barometer Logged. Waiting for next capture cycle')
-
-        if (enable_indoor_outdoor_functionality and indoor_outdoor_function == 'Indoor'
-                and outdoor_source_type == 'Enviro'): # Process paired outdoor unit, if enabled
-            if captured_outdoor_data != {}: #If there's new data
-                for reading in outdoor_data: # Only capture data that's been sent
-                    if reading in captured_outdoor_data:
-                        if reading == "Bar" or reading == "Hum": # Barometer and Humidity readings have their
-                            # data in lists
-                            outdoor_data[reading][1] = captured_outdoor_data[reading][0]
-                        else:
-                            outdoor_data[reading][1] = captured_outdoor_data[reading]
-                        outdoor_disp_values[reading] = outdoor_disp_values[reading][1:] +\
-                                                       [[outdoor_data[reading][1], 1]]
-                outdoor_maxi_temp = captured_outdoor_data["Max Temp"]
-                outdoor_mini_temp = captured_outdoor_data["Min Temp"]
-                outdoor_gas_sensors_warm = captured_outdoor_data["Gas Calibrated"]
-                outdoor_reading_captured = True
-                outdoor_reading_captured_time = time.time()
-                captured_outdoor_data = {}
-                
-        # Update Display on every loop
-        last_page, mode, start_current_display, current_display_is_own =\
-            display_results(start_current_display, current_display_is_own, display_modes,
-                            indoor_outdoor_display_duration, own_data, data_in_display_all_aq, outdoor_data,
-                            outdoor_reading_captured, own_disp_values, outdoor_disp_values, delay, last_page, mode,
-                            WIDTH, valid_barometer_history, forecast, barometer_available_time, barometer_change,
-                            barometer_trend, icon_forecast, maxi_temp, mini_temp, air_quality_data,
-                            air_quality_data_no_gas, gas_sensors_warm, outdoor_gas_sensors_warm, enable_display,
-                            palette, enable_adafruit_io, aio_user_name, aio_household_prefix, enable_eco2_tvoc,
-                                                                                         outdoor_source_type)
-
-        # Provide external updates and update persistent data log
-        if run_time > startup_stabilisation_time: # Wait until the gas sensors have stabilised before providing
-            # external updates or updating the persistent data log
-            # Send data to Adafruit IO if enabled, set up and the time is now within the configured window and sequence
-            if enable_adafruit_io and aio_format != {}:
-                today=datetime.now()
-                window_minute = int(today.strftime('%M'))
-                window_second = int(today.strftime('%S'))
-                if window_minute % 10 == aio_feed_window and window_second // 15 == aio_feed_sequence and\
-                        window_minute != previous_aio_update_minute:
-                    previous_aio_air_quality_level, previous_aio_air_quality_text, previous_aio_forecast_text,\
-                    previous_aio_forecast, aio_resp =\
-                        update_aio(mqtt_values, forecast, aio_format, aio_forecast_text_format,
-                                   aio_forecast_icon_format, aio_air_quality_level_format, aio_air_quality_text_format,
-                                   own_data, icon_air_quality_levels, aio_forecast, aio_package, gas_sensors_warm,
-                                   air_quality_data, air_quality_data_no_gas, previous_aio_air_quality_level,
-                                   previous_aio_air_quality_text, previous_aio_forecast_text, previous_aio_forecast)
-                    data_sent_to_luftdaten_or_aio = True
-                    previous_aio_update_minute = window_minute
-                    if aio_resp:
-                        print("At least one Adafruit IO feed successful. Waiting for next capture cycle")
-                    else:
-                        print("No Adafruit IO feeds successful. Waiting for next capture cycle")
-            time_since_long_update = time.time() - long_update_time
+    with noise_stream:
+        while True:
+            if enable_noise:# Take noise sample on every loop if noise is enabled
+                if noise_sample_counter != noise_previous_sample_count: # Only process new sample
+                    noise_previous_sample_count = noise_sample_counter
+                    if noise_sample_counter > 10: # Wait for microphone stability
+                        recording_offset = numpy.mean(recording)
+                        recording = recording - recording_offset # Remove remaining microphone DC Offset
+                        amps = get_rms_at_frequency_ranges(recording, [(30, 100), (100, 500), (500, 20000)], noise_sample_rate)
+                        amps[0] *= 0.0562 # Adjust lowest frequencies RMS level by -25dB to approximate A compensation curve
+                        amps[1] *= 0.316 # Adjust upper low frequencies RMS level by -10db to approximate A compensation curve
+                        weighted_noise_level = sum(amps)/3 # Take mean of adjusted RMS levels
+                        own_noise_ratio = (weighted_noise_level)/noise_ref_level
+                        new_noise_mqtt_value = False
+                        if own_noise_ratio > 0:
+                            own_noise_level = round(20*math.log10(own_noise_ratio), 1)
+                            own_noise_values = own_noise_values[1:] + [[own_noise_level, 1]]
+                            # Capture Max sound level once display has been changed for > 2 seconds
+                            if (time.time() - last_page) > 2:
+                                if own_noise_level >= own_noise_max:
+                                    own_noise_max = own_noise_level
+                                    own_noise_max_event = datetime.now()
+                                    date_string = own_noise_max_event.strftime("%d %b %y").lstrip('0')
+                                    time_string = own_noise_max_event.strftime("%H:%M")
+                                    own_noise_max_datetime = {"Date": date_string, "Time": time_string}
+                                    mqtt_values["Max Noise"] = round(own_noise_max, 1)
+                                    mqtt_values["Max Noise Date Time"] = own_noise_max_datetime
+                                if own_noise_level >= own_aio_max_noise:
+                                    own_aio_max_noise = round(own_noise_level, 1)
+                                if own_noise_level >= mqtt_values["Noise"]:
+                                    mqtt_values["Noise"] = round(own_noise_level, 1)
+                                    new_noise_mqtt_value = True
+                        own_noise_ratio_freq = [n/noise_ref_level for n in amps]
+                        all_noise_ratio_freq_ok = True
+                        for noise_ratio in own_noise_ratio_freq: # Ensure that ratios are > 0
+                            if noise_ratio <= 0:
+                                all_noise_ratio_freq_ok = False
+                        if all_noise_ratio_freq_ok:
+                            for item in range(len(own_noise_ratio_freq)):
+                                own_noise_freq[item] = round(20*math.log10(own_noise_ratio_freq[item]), 1)
+                            if new_noise_mqtt_value:
+                                mqtt_values["Noise Freq"] = own_noise_freq
+                            own_noise_freq_values = own_noise_freq_values[1:] + [[own_noise_freq[0], own_noise_freq[1], own_noise_freq[2], 1]]
+            # Read air particle values on every loop
+            luft_values, mqtt_values, own_data, own_disp_values = read_pm_values(luft_values, mqtt_values, own_data,
+                                                                                 own_disp_values)
             
-            # Provide/capture other external updates and update persistent data log every 5 minutes
-            # (Set by long_update_delay)
-            if time_since_long_update >= long_update_delay:
-                long_update_time = time.time()
-                if (indoor_outdoor_function == 'Indoor' and enable_send_data_to_homemanager):
-                    client.publish(indoor_mqtt_topic, json.dumps(mqtt_values)) # Send indoor mqtt data
-                elif (indoor_outdoor_function == 'Outdoor' and (enable_indoor_outdoor_functionality or
-                                                                enable_send_data_to_homemanager)):
-                    client.publish(outdoor_mqtt_topic, json.dumps(mqtt_values)) # Send outdoor mqtt data
-                if enable_climate_and_gas_logging: # Log data
-                    log_climate_and_gas(run_time, own_data, raw_red_rs, raw_oxi_rs, raw_nh3_rs, raw_temp,
-                                        comp_temp, comp_hum, raw_hum, use_external_temp_hum, use_external_barometer,
-                                        raw_barometer)
-                if (enable_indoor_outdoor_functionality and indoor_outdoor_function == 'Indoor'
-                        and (outdoor_source_type == 'Luftdaten' or outdoor_source_type == 'Adafruit IO')): # Capture
-                    # outdoor data via Luftdaten or Adafruit IO
-                    long_update_toggle = not long_update_toggle
-                    if long_update_toggle: # Only capture outdoor data via Luftdaten or Adafruit IO on every second cycle
-                        outdoor_reading_captured = False
-                        external_outdoor_data = capture_external_outdoor_data(outdoor_source_type, outdoor_source_id,
-                                                                              outdoor_aio_readings)
-                        if external_outdoor_data != {}:
-                            print('External Outdoor Data', external_outdoor_data)
-                            if outdoor_source_type == 'Luftdaten':
-                                if "Temp" in external_outdoor_data:
-                                    outdoor_data["Temp"][1] = external_outdoor_data["Temp"]
-                                    outdoor_disp_values["Temp"] = outdoor_disp_values["Temp"][1:] +\
-                                                                  [[outdoor_data["Temp"][1], 1]]
+            # Read climate values, update Luftdaten and write to watchdog file every 2.5 minutes
+            # (set by short_update_time).
+            run_time = round((time.time() - start_time), 0)
+            time_since_short_update = time.time() - short_update_time
+            if time_since_short_update >= short_update_delay:
+                short_update_time = time.time()
+                # Calibrate gas sensors once after warmup
+                if ((time.time() - start_time) >= gas_sensors_warmup_time) and gas_sensors_warm == False and\
+                        first_climate_reading_done:
+                    gas_calib_temp = round(raw_temp, 1)
+                    gas_calib_hum = round(raw_hum, 1)
+                    gas_calib_bar = round(raw_barometer, 1)
+                    red_r0, oxi_r0, nh3_r0 = read_raw_gas()
+                    print("Gas Sensor Calibration after Warmup. Red R0:", red_r0, "Oxi R0:", oxi_r0, "NH3 R0:", nh3_r0)
+                    print("Gas Calibration Baseline. Temp:", gas_calib_temp, "Hum:", gas_calib_hum,
+                          "Barometer:", gas_calib_bar)
+                    reds_r0 = [red_r0] * 7
+                    oxis_r0 = [oxi_r0] * 7
+                    nh3s_r0 = [nh3_r0] * 7
+                    gas_calib_temps = [gas_calib_temp] * 7
+                    gas_calib_hums = [gas_calib_hum] * 7
+                    gas_calib_bars = [gas_calib_bar] * 7
+                    gas_sensors_warm = True               
+                (luft_values, mqtt_values, own_data, maxi_temp, mini_temp, own_disp_values, raw_red_rs, raw_oxi_rs,
+                 raw_nh3_rs, raw_temp, comp_temp, comp_hum, raw_hum, use_external_temp_hum, use_external_barometer,
+                 raw_barometer, absolute_hum) = read_climate_gas_values(luft_values, mqtt_values, own_data, maxi_temp,
+                                                                        mini_temp, own_disp_values, gas_sensors_warm,
+                                                                        gas_calib_temp, gas_calib_hum, gas_calib_bar,
+                                                                        altitude, enable_eco2_tvoc)
+                first_climate_reading_done = True
+                print('Luftdaten Values', luft_values)
+                print('mqtt Values', mqtt_values)
+                # Write to the watchdog file unless there is a comms failure for >= comms_failure_tolerance
+                # when both Luftdaten and Adafruit IO arenabled
+                if comms_failure == False:
+                    with open('<Your Watchdog File Name Here>', 'w') as f:
+                        f.write('Enviro Script Alive')
+                if enable_luftdaten: # Send data to Luftdaten if enabled
+                    luft_resp = send_to_luftdaten(luft_values, id, enable_particle_sensor)
+                    #logging.info("Luftdaten Response: {}\n".format("ok" if luft_resp else "failed"))
+                    data_sent_to_luftdaten_or_aio = True
+                    if luft_resp:
+                        print("Luftdaten update successful. Waiting for next capture cycle")
+                    else:
+                        print("Luftdaten update unsuccessful. Waiting for next capture cycle")
+                else:
+                    print('Waiting for next capture cycle')
+
+            # Read TVOC and eCO2 every second
+            if enable_eco2_tvoc:
+                time_since_eco2_tvoc = time.time() - eco2_tvoc_update_time
+                if time_since_eco2_tvoc >= 1:
+                    eco2_tvoc_update_time = time.time()
+                    mqtt_values, own_data, own_disp_values = read_eco2_tvoc_values(mqtt_values, own_data, own_disp_values)    
+
+            # Read and update the barometer log if the first climate reading has been done and the last update was >=
+            # 20 minutes ago
+            if first_climate_reading_done and (time.time() - barometer_log_time) >= 1200:
+                if barometer_log_time == 0: # If this is the first barometer log, record the time that a forecast will be
+                    # available (3 hours)
+                    barometer_available_time = time.time() + 10800
+                barometer_history, barometer_change, valid_barometer_history, barometer_log_time, forecast,\
+                barometer_trend, icon_forecast, domoticz_forecast, aio_forecast = log_barometer(own_data['Bar'][1],
+                                                                                                barometer_history)
+                mqtt_values["Forecast"] = {"Valid": valid_barometer_history, "3 Hour Change": round(barometer_change, 1),
+                                           "Forecast": forecast.replace("\n", " ")}
+                mqtt_values["Bar"][1] = domoticz_forecast # Add Domoticz Weather Forecast
+                print('Barometer Logged. Waiting for next capture cycle')
+
+            # Process paired outdoor unit, if enabled
+            if (enable_indoor_outdoor_functionality and indoor_outdoor_function == 'Indoor'
+                    and outdoor_source_type == 'Enviro'):
+                if captured_outdoor_data != {}: #If there's new data
+                    for reading in outdoor_data: # Only capture data that's been sent
+                        if reading in captured_outdoor_data:
+                            if reading == "Bar" or reading == "Hum": # Barometer and Humidity readings have their
+                                # data in lists
+                                outdoor_data[reading][1] = captured_outdoor_data[reading][0]
+                            else:
+                                outdoor_data[reading][1] = captured_outdoor_data[reading]
+                            outdoor_disp_values[reading] = outdoor_disp_values[reading][1:] +\
+                                                           [[outdoor_data[reading][1], 1]]
+                    outdoor_maxi_temp = captured_outdoor_data["Max Temp"]
+                    outdoor_mini_temp = captured_outdoor_data["Min Temp"]
+                    outdoor_gas_sensors_warm = captured_outdoor_data["Gas Calibrated"]
+                    if "Noise" in captured_outdoor_data:
+                        outdoor_noise_level = captured_outdoor_data["Noise"]
+                        outdoor_noise_values = outdoor_noise_values[1:] + [[outdoor_noise_level, 1]]
+                    if "Max Noise" in captured_outdoor_data:
+                        outdoor_noise_max = captured_outdoor_data["Max Noise"]
+                    if "Max Noise Date Time" in captured_outdoor_data:
+                        outdoor_noise_max_datetime = captured_outdoor_data["Max Noise Date Time"]
+                    if "Noise Freq" in captured_outdoor_data:
+                        outdoor_noise_freq = captured_outdoor_data["Noise Freq"]
+                        outdoor_noise_freq_values = outdoor_noise_freq_values[1:] + [[outdoor_noise_freq[0], outdoor_noise_freq[1], outdoor_noise_freq[2], 1]]
+                    outdoor_reading_captured = True
+                    outdoor_reading_captured_time = time.time()
+                    captured_outdoor_data = {}
+                    
+            # Update Display on every loop
+            last_page, mode, start_current_display, current_display_is_own, own_noise_max =\
+                display_results(start_current_display, current_display_is_own, display_modes,
+                                indoor_outdoor_display_duration, own_data, data_in_display_all_aq, outdoor_data,
+                                outdoor_reading_captured, own_disp_values, outdoor_disp_values, delay, last_page, mode,
+                                WIDTH, valid_barometer_history, forecast, barometer_available_time, barometer_change,
+                                barometer_trend, icon_forecast, maxi_temp, mini_temp, air_quality_data,
+                                air_quality_data_no_gas, gas_sensors_warm, outdoor_gas_sensors_warm, enable_display,
+                                palette, enable_adafruit_io, aio_user_name, aio_household_prefix, enable_eco2_tvoc,
+                                outdoor_source_type, own_noise_level, own_noise_max, own_noise_max_datetime,
+                                own_noise_values, own_noise_freq_values, outdoor_noise_level, outdoor_noise_max,
+                                outdoor_noise_max_datetime, outdoor_noise_values, outdoor_noise_freq_values)
+
+            # Provide external updates and update persistent data log
+            if run_time > startup_stabilisation_time: # Wait until the gas sensors have stabilised before providing
+                # external updates or updating the persistent data log
+                # Send data to Adafruit IO if enabled, set up and the time is now within the configured window and sequence
+                if enable_adafruit_io and aio_format != {}:
+                    today=datetime.now()
+                    window_minute = int(today.strftime('%M'))
+                    window_second = int(today.strftime('%S'))
+                    if window_minute % 10 == aio_feed_window and window_second // 15 == aio_feed_sequence and\
+                            window_minute != previous_aio_update_minute:
+                        previous_aio_air_quality_level, previous_aio_air_quality_text, previous_aio_forecast_text,\
+                        previous_aio_forecast, aio_resp =\
+                            update_aio(mqtt_values, forecast, aio_format, aio_forecast_text_format,
+                                       aio_forecast_icon_format, aio_air_quality_level_format, aio_air_quality_text_format,
+                                       own_data, icon_air_quality_levels, aio_forecast, aio_package, gas_sensors_warm,
+                                       air_quality_data, air_quality_data_no_gas, previous_aio_air_quality_level,
+                                       previous_aio_air_quality_text, previous_aio_forecast_text, previous_aio_forecast, own_aio_max_noise)
+                        own_aio_max_noise = 0 # Reset noise adafruit io max spl reading after each transmission to capture new max level
+                        data_sent_to_luftdaten_or_aio = True
+                        previous_aio_update_minute = window_minute
+                        if aio_resp:
+                            print("At least one Adafruit IO feed successful. Waiting for next capture cycle")
+                        else:
+                            print("No Adafruit IO feeds successful. Waiting for next capture cycle")
+                time_since_long_update = time.time() - long_update_time
+                
+                # Provide/capture other external updates and update persistent data log every 5 minutes
+                # (Set by long_update_delay)
+                if time_since_long_update >= long_update_delay:
+                    long_update_time = time.time()
+                    if (indoor_outdoor_function == 'Indoor' and enable_send_data_to_homemanager):
+                        client.publish(indoor_mqtt_topic, json.dumps(mqtt_values)) # Send indoor mqtt data
+                    elif (indoor_outdoor_function == 'Outdoor' and (enable_indoor_outdoor_functionality or
+                                                                    enable_send_data_to_homemanager)):
+                        client.publish(outdoor_mqtt_topic, json.dumps(mqtt_values)) # Send outdoor mqtt data
+                    if enable_noise:
+                        mqtt_values["Noise"] = 0 # Reset noise mqtt reading after each transmission to capture new max level
+                    if enable_climate_and_gas_logging: # Log data
+                        log_climate_and_gas(run_time, own_data, raw_red_rs, raw_oxi_rs, raw_nh3_rs, raw_temp,
+                                            comp_temp, comp_hum, raw_hum, use_external_temp_hum, use_external_barometer,
+                                            raw_barometer)
+                    if (enable_indoor_outdoor_functionality and indoor_outdoor_function == 'Indoor'
+                            and (outdoor_source_type == 'Luftdaten' or outdoor_source_type == 'Adafruit IO')): # Capture
+                        # outdoor data via Luftdaten or Adafruit IO
+                        long_update_toggle = not long_update_toggle
+                        if long_update_toggle: # Only capture outdoor data via Luftdaten or Adafruit IO on every second cycle
+                            outdoor_reading_captured = False
+                            external_outdoor_data = capture_external_outdoor_data(outdoor_source_type, outdoor_source_id,
+                                                                                  outdoor_aio_readings)
+                            if external_outdoor_data != {}:
+                                print('External Outdoor Data', external_outdoor_data)
+                                if outdoor_source_type == 'Luftdaten':
+                                    if "Temp" in external_outdoor_data:
+                                        outdoor_data["Temp"][1] = external_outdoor_data["Temp"]
+                                        outdoor_disp_values["Temp"] = outdoor_disp_values["Temp"][1:] +\
+                                                                      [[outdoor_data["Temp"][1], 1]]
+                                        if outdoor_maxi_temp == None:
+                                            outdoor_maxi_temp = outdoor_data["Temp"][1]
+                                        elif outdoor_data["Temp"][1] > outdoor_maxi_temp:
+                                            outdoor_maxi_temp = outdoor_data["Temp"][1]
+                                        if outdoor_mini_temp == None:
+                                            outdoor_mini_temp = outdoor_data["Temp"][1]
+                                        elif outdoor_data["Temp"][1] < outdoor_mini_temp:
+                                            outdoor_mini_temp = outdoor_data["Temp"][1]
+                                    if "Hum" in external_outdoor_data:
+                                        outdoor_data["Hum"][1] = external_outdoor_data["Hum"]
+                                        outdoor_disp_values["Hum"] = outdoor_disp_values["Hum"][1:] +\
+                                                                     [[outdoor_data["Hum"][1], 1]]
+                                    if "P10" in external_outdoor_data:
+                                        outdoor_data["P10"][1] = external_outdoor_data["P10"]
+                                        outdoor_disp_values["P10"] = outdoor_disp_values["P10"][1:] +\
+                                                                     [[outdoor_data["P10"][1], 1]]
+                                    if "P2.5" in external_outdoor_data:
+                                        outdoor_data["P2.5"][1] = external_outdoor_data["P2.5"]
+                                        outdoor_disp_values["P2.5"] = outdoor_disp_values["P2.5"][1:] +\
+                                                                      [[outdoor_data["P2.5"][1], 1]]
+                                    outdoor_data["Bar"][1] = own_data["Bar"][1] # Use internal air pressure data
+                                    outdoor_data["P1"][1] = None
+                                    outdoor_data["Oxi"][1] = None
+                                    outdoor_data["Red"][1] = None
+                                    outdoor_data["NH3"][1] = None
+                                    outdoor_data["Lux"][1] = None
+                                    outdoor_gas_sensors_warm = False
+                                    outdoor_reading_captured = True
+                                    outdoor_reading_captured_time = time.time()
+                                elif outdoor_source_type == 'Adafruit IO':
+                                    for reading in outdoor_aio_readings:
+                                        if reading in external_outdoor_data:
+                                            outdoor_reading_captured = True
+                                            outdoor_reading_captured_time = time.time()
+                                            outdoor_data[reading][1] = external_outdoor_data[reading]
+                                            outdoor_disp_values[reading] = outdoor_disp_values[reading][1:] + [
+                                                [outdoor_data[reading][1], 1]]
                                     if outdoor_maxi_temp == None:
                                         outdoor_maxi_temp = outdoor_data["Temp"][1]
                                     elif outdoor_data["Temp"][1] > outdoor_maxi_temp:
@@ -1995,201 +2291,166 @@ try:
                                         outdoor_mini_temp = outdoor_data["Temp"][1]
                                     elif outdoor_data["Temp"][1] < outdoor_mini_temp:
                                         outdoor_mini_temp = outdoor_data["Temp"][1]
-                                if "Hum" in external_outdoor_data:
-                                    outdoor_data["Hum"][1] = external_outdoor_data["Hum"]
-                                    outdoor_disp_values["Hum"] = outdoor_disp_values["Hum"][1:] +\
-                                                                 [[outdoor_data["Hum"][1], 1]]
-                                if "P10" in external_outdoor_data:
-                                    outdoor_data["P10"][1] = external_outdoor_data["P10"]
-                                    outdoor_disp_values["P10"] = outdoor_disp_values["P10"][1:] +\
-                                                                 [[outdoor_data["P10"][1], 1]]
-                                if "P2.5" in external_outdoor_data:
-                                    outdoor_data["P2.5"][1] = external_outdoor_data["P2.5"]
-                                    outdoor_disp_values["P2.5"] = outdoor_disp_values["P2.5"][1:] +\
-                                                                  [[outdoor_data["P2.5"][1], 1]]
-                                outdoor_data["Bar"][1] = own_data["Bar"][1] # Use internal air pressure data
-                                outdoor_data["P1"][1] = None
-                                outdoor_data["Oxi"][1] = None
-                                outdoor_data["Red"][1] = None
-                                outdoor_data["NH3"][1] = None
-                                outdoor_data["Lux"][1] = None
-                                outdoor_gas_sensors_warm = False
-                                outdoor_reading_captured = True
-                                outdoor_reading_captured_time = time.time()
-                            elif outdoor_source_type == 'Adafruit IO':
-                                for reading in outdoor_aio_readings:
-                                    if reading in external_outdoor_data:
-                                        outdoor_reading_captured = True
-                                        outdoor_reading_captured_time = time.time()
-                                        outdoor_data[reading][1] = external_outdoor_data[reading]
-                                        outdoor_disp_values[reading] = outdoor_disp_values[reading][1:] + [
-                                            [outdoor_data[reading][1], 1]]
-                                if outdoor_maxi_temp == None:
-                                    outdoor_maxi_temp = outdoor_data["Temp"][1]
-                                elif outdoor_data["Temp"][1] > outdoor_maxi_temp:
-                                    outdoor_maxi_temp = outdoor_data["Temp"][1]
-                                if outdoor_mini_temp == None:
-                                    outdoor_mini_temp = outdoor_data["Temp"][1]
-                                elif outdoor_data["Temp"][1] < outdoor_mini_temp:
-                                    outdoor_mini_temp = outdoor_data["Temp"][1]
-                                outdoor_data["Lux"][1] = None
-                                outdoor_data["Bar"][1] = own_data["Bar"][1] # Use internal air pressure data
-                                outdoor_gas_sensors_warm = True
-                        else:
-                            print("No external outdoor data captured")
-                            
-                # Write to the persistent data log
-                if enable_eco2_tvoc: # Update and add eco2_tvoc_baseline if CO2/TVOC is enabled and the SGP30 sensor
-                    # has been active for more than 12 hours, or there's a valid baseline
-                    if run_time > 43200 or valid_eco2_tvoc_baseline:
-                        time_since_eco2_tvoc_get_baseline = time.time() - eco2_tvoc_get_baseline_update_time
-                        if time_since_eco2_tvoc_get_baseline >= 3600: # Update every hour
-                            eco2_tvoc_get_baseline_update_time = time.time()
-                            eco2_tvoc_baseline = sgp30.command('get_baseline')
-                            eco2_tvoc_baseline.append(eco2_tvoc_get_baseline_update_time)
-                            print('Storing eCO2/TVOC Baseline', eco2_tvoc_baseline)
-                    persistent_data_log = {"Update Time": long_update_time, "Barometer Log Time": barometer_log_time,
-                                           "Forecast": forecast, "Barometer Available Time": barometer_available_time,
-                                           "Valid Barometer History": valid_barometer_history,
-                                           "Barometer History": barometer_history, "Barometer Change": barometer_change,
-                                           "Barometer Trend": barometer_trend, "Icon Forecast": icon_forecast,
-                                           "Domoticz Forecast": domoticz_forecast, "AIO Forecast": aio_forecast,
-                                           "Gas Sensors Warm": gas_sensors_warm, "Gas Temp": gas_calib_temp,
-                                           "Gas Hum": gas_calib_hum, "Gas Bar": gas_calib_bar, "Red R0": red_r0,
-                                           "Oxi R0": oxi_r0, "NH3 R0": nh3_r0, "Red R0 List": reds_r0,
-                                           "Oxi R0 List": oxis_r0, "NH3 R0 List": nh3s_r0,
-                                           "Gas Calib Temp List": gas_calib_temps, "Gas Calib Hum List": gas_calib_hums,
-                                           "Gas Calib Bar List": gas_calib_bars, "Own Disp Values": own_disp_values,
-                                           "Outdoor Disp Values": outdoor_disp_values, "Maxi Temp": maxi_temp,
-                                           "Mini Temp": mini_temp, "Last Page": last_page, "Mode": mode,
-                                           "eCO2 TVOC Baseline": eco2_tvoc_baseline}
+                                    outdoor_data["Lux"][1] = None
+                                    outdoor_data["Bar"][1] = own_data["Bar"][1] # Use internal air pressure data
+                                    outdoor_gas_sensors_warm = True
+                            else:
+                                print("No external outdoor data captured")
+                                
+                    # Write to the persistent data log
+                    if enable_eco2_tvoc: # Update and add eco2_tvoc_baseline if CO2/TVOC is enabled and the SGP30 sensor
+                        # has been active for more than 12 hours, or there's a valid baseline
+                        if run_time > 43200 or valid_eco2_tvoc_baseline:
+                            time_since_eco2_tvoc_get_baseline = time.time() - eco2_tvoc_get_baseline_update_time
+                            if time_since_eco2_tvoc_get_baseline >= 3600: # Update every hour
+                                eco2_tvoc_get_baseline_update_time = time.time()
+                                eco2_tvoc_baseline = sgp30.command('get_baseline')
+                                eco2_tvoc_baseline.append(eco2_tvoc_get_baseline_update_time)
+                                print('Storing eCO2/TVOC Baseline', eco2_tvoc_baseline)
+                        persistent_data_log = {"Update Time": long_update_time, "Barometer Log Time": barometer_log_time,
+                                               "Forecast": forecast, "Barometer Available Time": barometer_available_time,
+                                               "Valid Barometer History": valid_barometer_history,
+                                               "Barometer History": barometer_history, "Barometer Change": barometer_change,
+                                               "Barometer Trend": barometer_trend, "Icon Forecast": icon_forecast,
+                                               "Domoticz Forecast": domoticz_forecast, "AIO Forecast": aio_forecast,
+                                               "Gas Sensors Warm": gas_sensors_warm, "Gas Temp": gas_calib_temp,
+                                               "Gas Hum": gas_calib_hum, "Gas Bar": gas_calib_bar, "Red R0": red_r0,
+                                               "Oxi R0": oxi_r0, "NH3 R0": nh3_r0, "Red R0 List": reds_r0,
+                                               "Oxi R0 List": oxis_r0, "NH3 R0 List": nh3s_r0,
+                                               "Gas Calib Temp List": gas_calib_temps, "Gas Calib Hum List": gas_calib_hums,
+                                               "Gas Calib Bar List": gas_calib_bars, "Own Disp Values": own_disp_values,
+                                               "Outdoor Disp Values": outdoor_disp_values, "Maxi Temp": maxi_temp,
+                                               "Mini Temp": mini_temp, "Last Page": last_page, "Mode": mode,
+                                               "eCO2 TVOC Baseline": eco2_tvoc_baseline}
+                    else: # Don't add eco2_tvoc_baseline if eCO2/TVOC is not enabled or the SGP30 sensor
+                          # has not been active for more than 12 hours, or there isn't a valid baseline
+                        persistent_data_log = {"Update Time": long_update_time, "Barometer Log Time": barometer_log_time,
+                                               "Forecast": forecast, "Barometer Available Time": barometer_available_time,
+                                               "Valid Barometer History": valid_barometer_history,
+                                               "Barometer History": barometer_history, "Barometer Change": barometer_change,
+                                               "Barometer Trend": barometer_trend, "Icon Forecast": icon_forecast,
+                                               "Domoticz Forecast": domoticz_forecast, "AIO Forecast": aio_forecast,
+                                               "Gas Sensors Warm": gas_sensors_warm, "Gas Temp": gas_calib_temp,
+                                               "Gas Hum": gas_calib_hum, "Gas Bar": gas_calib_bar, "Red R0": red_r0,
+                                               "Oxi R0": oxi_r0, "NH3 R0": nh3_r0, "Red R0 List": reds_r0,
+                                               "Oxi R0 List": oxis_r0, "NH3 R0 List": nh3s_r0,
+                                               "Gas Calib Temp List": gas_calib_temps, "Gas Calib Hum List": gas_calib_hums,
+                                               "Gas Calib Bar List": gas_calib_bars, "Own Disp Values": own_disp_values,
+                                               "Outdoor Disp Values": outdoor_disp_values,
+                                               "Maxi Temp": maxi_temp, "Mini Temp": mini_temp, "Last Page": last_page,
+                                               "Mode": mode}
+                    # Add Noise data
+                    persistent_data_log["Own Noise Values"] = own_noise_values
+                    persistent_data_log["Outdoor Noise Values"] = outdoor_noise_values
+                    persistent_data_log["Own Noise Freq Values"] = own_noise_freq_values
+                    persistent_data_log["Outdoor Noise Freq Values"] = outdoor_noise_freq_values
+                    persistent_data_log["Own Noise Max"] = own_noise_max
+                    persistent_data_log["Outdoor Noise Max"] = outdoor_noise_max
+                    persistent_data_log["Own Noise Max Date Time"] = own_noise_max_datetime
+                    persistent_data_log["Outdoor Noise Max Date Time"] = outdoor_noise_max_datetime
+                    print('Logging Barometer, Forecast, Gas Calibration and Display Data')
+                    with open('<Your Persistent Data Log File Name Here>', 'w') as f:
+                        f.write(json.dumps(persistent_data_log))
+                    if "Forecast" in mqtt_values:
+                        mqtt_values.pop("Forecast") # Remove Forecast after sending it to home manager so that
+                        # forecast data is only sent when updated
+                    # Check if there has been software or config update and restart code if either has been updated
+                    try:
+                        with open('<Your Mender Software Version File Location Here>', 'r') as f:
+                            latest_mender_software_version = f.read()
+                    except IOError:
+                        print('No Mender Software Version Available')
+                        latest_mender_software_version = startup_mender_software_version
+                    print("Startup Mender Software Version:", startup_mender_software_version,
+                          "Latest Mender Software Version:", latest_mender_software_version)
+                    try:
+                        with open('<Your Mender Config Version File Location Here>', 'r') as f:
+                            latest_mender_config_version = f.read()
+                    except IOError:
+                        print('No Mender Config Version Available')
+                        latest_mender_config_version = startup_mender_config_version
+                    print("Startup Mender Config Version:", startup_mender_config_version, "Latest Mender Config Version:", latest_mender_config_version)
+                    if latest_mender_software_version != startup_mender_software_version or\
+                            latest_mender_config_version != startup_mender_config_version:
+                        print('Software or Config Update Received. Restarting aqimonitor')
+                        if enable_send_data_to_homemanager or enable_receive_data_from_homemanager:
+                            client.loop_stop()
+                        time.sleep(10)
+                        os.system('sudo systemctl restart aqimonitor')
+                    print('Waiting for next capture cycle')
 
-                else: # Don't add eco2_tvoc_baseline if eCO2/TVOC is not enabled
-                    persistent_data_log = {"Update Time": long_update_time, "Barometer Log Time": barometer_log_time,
-                                           "Forecast": forecast, "Barometer Available Time": barometer_available_time,
-                                           "Valid Barometer History": valid_barometer_history,
-                                           "Barometer History": barometer_history, "Barometer Change": barometer_change,
-                                           "Barometer Trend": barometer_trend, "Icon Forecast": icon_forecast,
-                                           "Domoticz Forecast": domoticz_forecast, "AIO Forecast": aio_forecast,
-                                           "Gas Sensors Warm": gas_sensors_warm, "Gas Temp": gas_calib_temp,
-                                           "Gas Hum": gas_calib_hum, "Gas Bar": gas_calib_bar, "Red R0": red_r0,
-                                           "Oxi R0": oxi_r0, "NH3 R0": nh3_r0, "Red R0 List": reds_r0,
-                                           "Oxi R0 List": oxis_r0, "NH3 R0 List": nh3s_r0,
-                                           "Gas Calib Temp List": gas_calib_temps, "Gas Calib Hum List": gas_calib_hums,
-                                           "Gas Calib Bar List": gas_calib_bars, "Own Disp Values": own_disp_values,
-                                           "Outdoor Disp Values": outdoor_disp_values,
-                                           "Maxi Temp": maxi_temp, "Mini Temp": mini_temp, "Last Page": last_page,
-                                           "Mode": mode}
-                print('Logging Barometer, Forecast, Gas Calibration and Display Data')
-                with open('<Your Persistent Data Log File Name Here>', 'w') as f:
-                    f.write(json.dumps(persistent_data_log))
-                if "Forecast" in mqtt_values:
-                    mqtt_values.pop("Forecast") # Remove Forecast after sending it to home manager so that
-                    # forecast data is only sent when updated
-                # Check if there has been software or config update and restart code if either has been updated
-                try:
-                    with open('<Your Mender Software Version File Location Here>', 'r') as f:
-                        latest_mender_software_version = f.read()
-                except IOError:
-                    print('No Mender Software Version Available')
-                    latest_mender_software_version = startup_mender_software_version
-                print("Startup Mender Software Version:", startup_mender_software_version,
-                      "Latest Mender Software Version:", latest_mender_software_version)
-                try:
-                    with open('<Your Mender Config Version File Location Here>', 'r') as f:
-                        latest_mender_config_version = f.read()
-                except IOError:
-                    print('No Mender Config Version Available')
-                    latest_mender_config_version = startup_mender_config_version
-                print("Startup Mender Config Version:", startup_mender_config_version,
-                      "Latest Mender Config Version:", latest_mender_config_version)
-                if latest_mender_software_version != startup_mender_software_version or\
-                        latest_mender_config_version != startup_mender_config_version:
-                    print('Software or Config Update Received. Restarting aqimonitor')
-                    if enable_send_data_to_homemanager or enable_receive_data_from_homemanager:
-                        client.loop_stop()
-                    time.sleep(10)
-                    os.system('sudo systemctl restart aqimonitor')
-                print('Waiting for next capture cycle')
+            # Luftdaten and/or Adafruit IO Communications Check. Note that aio_resp and luft_resp are both TRUE on startup,
+            # so there has to be a comms error for either of them to be set to FALSE
+            # Either aio_resp and luft_resp is set to TRUE if there's a subsequent error-free comms to their
+            # respective platform
+            if enable_adafruit_io and enable_luftdaten:
+                if aio_resp or luft_resp: # Set time when a successful Luftdaten or Adafruit IO response is received,
+                    # if both Luftdaten and Adafruit IO are enabled
+                    successful_comms_time = time.time()
+            elif enable_adafruit_io and not enable_luftdaten: # Set time when a successful Adafruit IO response is received,
+                # if only Adafruit IO is enabled
+                if aio_resp:
+                    successful_comms_time = time.time()
+            elif enable_luftdaten and not enable_adafruit_io: # Set time when a successful Luftdaten response is received,
+                # if only Luftdaten is enabled
+                if luft_resp:
+                    successful_comms_time = time.time()
+            else: # Set time if both Adafruit IO and Luftdaten are disabled so that comms failure is never triggered
+                successful_comms_time = time.time()
+            if time.time() - successful_comms_time >= comms_failure_tolerance:
+                comms_failure = True
+                print("Communications has been lost for more than " + str(int(comms_failure_tolerance/60)) +
+                      " minutes. System will reboot via watchdog")
+            # Outdoor Sensor Comms Check
+            if time.time() - outdoor_reading_captured_time > long_update_delay * 4:
+                outdoor_reading_captured = False # Reset outdoor reading captured flag if comms with the
+                # outdoor sensor is lost for more than 20 minutes so that old outdoor data is not displayed
+                
+            # Calibrate gas sensors daily at time set by gas_daily_r0_calibration_hour,
+            # using average of daily readings over a week if not already done in the current day and if warmup
+            # calibration is completed
+            # Compensates for gas sensor drift over time
+            today=datetime.now()
+            if int(today.strftime('%H')) == gas_daily_r0_calibration_hour and gas_daily_r0_calibration_completed == False\
+                    and gas_sensors_warm and first_climate_reading_done:
+                print("Daily Gas Sensor Calibration. Old R0s. Red R0:", red_r0, "Oxi R0:", oxi_r0, "NH3 R0:", nh3_r0)
+                print("Old Calibration Baseline. Temp:", gas_calib_temp, "Hum:", gas_calib_hum,
+                      "Barometer:", gas_calib_bar)
+                # Set new calibration baseline using 7 day rolling average
+                gas_calib_temps = gas_calib_temps[1:] + [round(raw_temp, 1)]
+                #print("Calib Temps", gas_calib_temps)
+                gas_calib_temp = round(sum(gas_calib_temps)/float(len(gas_calib_temps)), 1)
+                gas_calib_hums = gas_calib_hums[1:] + [round(raw_hum, 1)]
+                #print("Calib Hums", gas_calib_hums)
+                gas_calib_hum = round(sum(gas_calib_hums)/float(len(gas_calib_hums)), 0)
+                gas_calib_bars = gas_calib_bars[1:] + [round(raw_barometer, 1)]
+                #print("Calib Bars", gas_calib_bars)
+                gas_calib_bar = round(sum(gas_calib_bars)/float(len(gas_calib_bars)), 1)
+                # Update R0s and create new calibration baseline
+                # spot_red_r0, spot_oxi_r0, spot_nh3_r0, raw_red_r0, raw_oxi_r0, raw_nh3_r0 = comp_gas(gas_calib_temp,
+                # gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer)
+                spot_red_r0, spot_oxi_r0, spot_nh3_r0 = read_raw_gas()
+                # Convert R0s to 7 day rolling average
+                reds_r0 = reds_r0[1:] + [round(spot_red_r0, 0)]
+                #print("Reds R0", reds_r0)
+                red_r0 = round(sum(reds_r0)/float(len(reds_r0)), 0)
+                oxis_r0 = oxis_r0[1:] + [round(spot_oxi_r0, 0)]
+                #print("Oxis R0", oxis_r0)
+                oxi_r0 = round(sum(oxis_r0)/float(len(oxis_r0)), 0)
+                nh3s_r0 = nh3s_r0[1:] + [round(spot_nh3_r0, 0)]
+                #print("NH3s R0", nh3s_r0)
+                nh3_r0 = round(sum(nh3s_r0)/float(len(nh3s_r0)), 0)
+                print('New R0s. Red R0:', red_r0, 'Oxi R0:', oxi_r0, 'NH3 R0:', nh3_r0)
+                print("New Calibration Baseline. Temp:", gas_calib_temp, "Hum:", gas_calib_hum,
+                      "Barometer:", gas_calib_bar)
+                gas_daily_r0_calibration_completed = True
+            if int(today.strftime('%H')) == (gas_daily_r0_calibration_hour + 1) and gas_daily_r0_calibration_completed:
+                gas_daily_r0_calibration_completed = False
 
-        # Luftdaten and/or Adafruit IO Communications Check. Note that aio_resp and luft_resp are both TRUE on startup,
-        # so there has to be a comms error for either of them to be set to FALSE
-        # Either aio_resp and luft_resp is set to TRUE if there's a subsequent error-free comms to their
-        # respective platform
-        if enable_adafruit_io and enable_luftdaten:
-            if aio_resp or luft_resp: # Set time when a successful Luftdaten or Adafruit IO response is received,
-                # if both Luftdaten and Adafruit IO are enabled
-                successful_comms_time = time.time()
-        elif enable_adafruit_io and not enable_luftdaten: # Set time when a successful Adafruit IO response is received,
-            # if only Adafruit IO is enabled
-            if aio_resp:
-                successful_comms_time = time.time()
-        elif enable_luftdaten and not enable_adafruit_io: # Set time when a successful Luftdaten response is received,
-            # if only Luftdaten is enabled
-            if luft_resp:
-                successful_comms_time = time.time()
-        else: # Set time if both Adafruit IO and Luftdaten are disabled so that comms failure is never triggered
-            successful_comms_time = time.time()
-        if time.time() - successful_comms_time >= comms_failure_tolerance:
-            comms_failure = True
-            print("Communications has been lost for more than " + str(int(comms_failure_tolerance/60)) +
-                  " minutes. System will reboot via watchdog")
-        # Outdoor Sensor Comms Check
-        if time.time() - outdoor_reading_captured_time > long_update_delay * 4:
-            outdoor_reading_captured = False # Reset outdoor reading captured flag if comms with the
-            # outdoor sensor is lost for more than 20 minutes so that old outdoor data is not displayed
-            
-        # Calibrate gas sensors daily at time set by gas_daily_r0_calibration_hour,
-        # using average of daily readings over a week if not already done in the current day and if warmup
-        # calibration is completed
-        # Compensates for gas sensor drift over time
-        today=datetime.now()
-        if int(today.strftime('%H')) == gas_daily_r0_calibration_hour and gas_daily_r0_calibration_completed == False\
-                and gas_sensors_warm and first_climate_reading_done:
-            print("Daily Gas Sensor Calibration. Old R0s. Red R0:", red_r0, "Oxi R0:", oxi_r0, "NH3 R0:", nh3_r0)
-            print("Old Calibration Baseline. Temp:", round(gas_calib_temp, 1), "Hum:", round(gas_calib_hum, 0),
-                  "Barometer:", round(gas_calib_bar, 1))
-            # Set new calibration baseline using 7 day rolling average
-            gas_calib_temps = gas_calib_temps[1:] + [raw_temp]
-            #print("Calib Temps", gas_calib_temps)
-            gas_calib_temp = round(sum(gas_calib_temps)/float(len(gas_calib_temps)), 1)
-            gas_calib_hums = gas_calib_hums[1:] + [raw_hum]
-            #print("Calib Hums", gas_calib_hums)
-            gas_calib_hum = round(sum(gas_calib_hums)/float(len(gas_calib_hums)), 0)
-            gas_calib_bars = gas_calib_bars[1:] + [raw_barometer]
-            #print("Calib Bars", gas_calib_bars)
-            gas_calib_bar = round(sum(gas_calib_bars)/float(len(gas_calib_bars)), 1)
-            # Update R0s and create new calibration baseline
-            # spot_red_r0, spot_oxi_r0, spot_nh3_r0, raw_red_r0, raw_oxi_r0, raw_nh3_r0 = comp_gas(gas_calib_temp,
-            # gas_calib_hum, gas_calib_bar, raw_temp, raw_hum, raw_barometer)
-            spot_red_r0, spot_oxi_r0, spot_nh3_r0 = read_raw_gas()
-            # Convert R0s to 7 day rolling average
-            reds_r0 = reds_r0[1:] + [spot_red_r0]
-            #print("Reds R0", reds_r0)
-            red_r0 = round(sum(reds_r0)/float(len(reds_r0)), 0)
-            oxis_r0 = oxis_r0[1:] + [spot_oxi_r0]
-            #print("Oxis R0", oxis_r0)
-            oxi_r0 = round(sum(oxis_r0)/float(len(oxis_r0)), 0)
-            nh3s_r0 = nh3s_r0[1:] + [spot_nh3_r0]
-            #print("NH3s R0", nh3s_r0)
-            nh3_r0 = round(sum(nh3s_r0)/float(len(nh3s_r0)), 0)
-            print('New R0s. Red R0:', red_r0, 'Oxi R0:', oxi_r0, 'NH3 R0:', nh3_r0)
-            print("New Calibration Baseline. Temp:", round(gas_calib_temp, 1), "Hum:", round(gas_calib_hum, 0),
-                  "Barometer:", round(gas_calib_bar, 1))
-            gas_daily_r0_calibration_completed = True
-        if int(today.strftime('%H')) == (gas_daily_r0_calibration_hour + 1) and gas_daily_r0_calibration_completed:
-            gas_daily_r0_calibration_completed = False
-            
-        # Only add a delay in the loop if no Luftdaten or Adafruit IO data has been sent
-        if data_sent_to_luftdaten_or_aio == False:
-            time.sleep(0.5)
-        else:
-            data_sent_to_luftdaten_or_aio = False # Reset data_sent_to_luftdaten_or_aio flag until Luftdaten or
-            # Adafruit IO data has been sent again
-            
 except KeyboardInterrupt:
     if enable_send_data_to_homemanager or enable_receive_data_from_homemanager:
         client.loop_stop()
+    noise_stream.abort()
     print('Keyboard Interrupt')
 
 # Acknowledgements
@@ -2200,5 +2461,6 @@ except KeyboardInterrupt:
 # https://github.com/pimoroni/enviroplus-python/blob/master/examples/luftdaten.py
 # https://github.com/pimoroni/enviroplus-python/blob/enviro-non-plus/examples/weather-and-light.py
 # https://github.com/pimoroni/sgp30-python
+# https://github.com/pimoroni/enviroplus-python/blob/master/examples/noise-amps-at-freqs.py
 # https://github.com/home-assistant-ecosystem/python-luftdaten
 # Weather Forecast based on www.worldstormcentral.co/law_of_storms/secret_law_of_storms.html by R. J. Ellis
