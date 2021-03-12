@@ -31,7 +31,7 @@ Setting up of the noise level measurements requires the following additional ste
 
 # Additional Noise Measurement Setup
 
-Successful execution of this setup is necessary before enabling noise measurment in the config file.
+Successful execution of this setup is necessary before enabling noise measurement in the config file.
 
 sudo apt-get update
 
