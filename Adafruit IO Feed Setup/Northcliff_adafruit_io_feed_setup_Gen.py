@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor Adafruit IO Feed Setup 7.10 _ Gen Add Noise
+#Northcliff Environment Monitor Adafruit IO Feed Setup 7.11-Gen Max, Min and Mean Noise
 import requests
 import json
 
@@ -22,14 +22,17 @@ enviro_aio_premium_feeds = {"Temperature": "temperature", "Humidity": "humidity"
                     "PM10": "pm10", "Reducing": "reducing", "Oxidising": "oxidising", "Ammonia": "ammonia", "Air Quality Level": "air-quality-level", "Air Quality Text": "air-quality-text",
                     "Weather Forecast Text": "weather-forecast", "Weather Forecast Icon": "weather-forecast-icon", "Version": "version"}
 enviro_aio_premium_noise_feeds = {"Temperature": "temperature", "Humidity": "humidity", "Barometer": "barometer", "Lux": "lux", "PM1": "pm1", "PM2.5": "pm2-dot-5",
-                    "PM10": "pm10", "Reducing": "reducing", "Oxidising": "oxidising", "Ammonia": "ammonia", "Noise": "noise", "Air Quality Level": "air-quality-level", "Air Quality Text": "air-quality-text",
+                    "PM10": "pm10", "Reducing": "reducing", "Oxidising": "oxidising", "Ammonia": "ammonia", "Max Noise": "max-noise", "Min Noise": "min-noise", "Min Noise": "mean-noise",
+                                  "Air Quality Level": "air-quality-level", "Air Quality Text": "air-quality-text",
                     "Weather Forecast Text": "weather-forecast", "Weather Forecast Icon": "weather-forecast-icon", "Version": "version"}
 enviro_aio_premium_plus_feeds = {"Temperature": "temperature", "Humidity": "humidity", "Barometer": "barometer", "Lux": "lux", "PM1": "pm1", "PM2.5": "pm2-dot-5",
-                    "PM10": "pm10", "Carbon Dioxide": "carbon-dioxide", "TVOC": "tvoc", "Reducing": "reducing", "Oxidising": "oxidising", "Ammonia": "ammonia", "Air Quality Level": "air-quality-level", "Air Quality Text": "air-quality-text",
-                    "Weather Forecast Text": "weather-forecast", "Weather Forecast Icon": "weather-forecast-icon", "Version": "version"}
+                    "PM10": "pm10", "Carbon Dioxide": "carbon-dioxide", "TVOC": "tvoc", "Reducing": "reducing", "Oxidising": "oxidising", "Ammonia": "ammonia",
+                                 "Air Quality Level": "air-quality-level", "Air Quality Text": "air-quality-text", "Weather Forecast Text": "weather-forecast",
+                                 "Weather Forecast Icon": "weather-forecast-icon", "Version": "version"}
 enviro_aio_premium_plus_noise_feeds = {"Temperature": "temperature", "Humidity": "humidity", "Barometer": "barometer", "Lux": "lux", "PM1": "pm1", "PM2.5": "pm2-dot-5",
-                    "PM10": "pm10", "Carbon Dioxide": "carbon-dioxide", "TVOC": "tvoc", "Reducing": "reducing", "Oxidising": "oxidising", "Ammonia": "ammonia",  "Noise": "noise", "Air Quality Level": "air-quality-level", "Air Quality Text": "air-quality-text",
-                    "Weather Forecast Text": "weather-forecast", "Weather Forecast Icon": "weather-forecast-icon", "Version": "version"}
+                    "PM10": "pm10", "Carbon Dioxide": "carbon-dioxide", "TVOC": "tvoc", "Reducing": "reducing", "Oxidising": "oxidising", "Ammonia": "ammonia",
+                                       "Max Noise": "max-noise", "Min Noise": "min-noise", "Mean Noise": "mean-noise", "Air Quality Level": "air-quality-level",
+                                       "Air Quality Text": "air-quality-text", "Weather Forecast Text": "weather-forecast", "Weather Forecast Icon": "weather-forecast-icon", "Version": "version"}
 enviro_aio_basic_air_feeds = {"PM1": "pm1", "PM2.5": "pm2-dot-5", "PM10": "pm10", "Air Quality Level": "air-quality-level", "Air Quality Text": "air-quality-text"}
 enviro_aio_basic_combo_feeds = {"Temperature": "temperature", "Humidity": "humidity", "Barometer": "barometer", "Air Quality Level": "air-quality-level", "Weather Forecast Icon": "weather-forecast-icon"}
 enviro_aio_feeds_map = {'Premium Plus': enviro_aio_premium_plus_feeds, 'Premium Plus Noise': enviro_aio_premium_plus_noise_feeds,'Premium': enviro_aio_premium_feeds, 'Premium Noise': enviro_aio_premium_noise_feeds,
@@ -137,7 +140,8 @@ enviro_aio_premium_noise_blocks = [{"name": "Temperature Gauge", "key": "tempera
                                     "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "lux", "group_id": "default"}]},
                                    {"name": "Noise Level Chart", "key": "noise", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "dB(A)", "yAxisMin": "30", "yAxisMax": "", "decimalPlaces": "1",
                                                                                                                                                 "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
-                                    "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "noise", "group_id": "default"}]},
+                                    "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "max-noise", "group_id": "default"}, {"feed_id": "min-noise", "group_id": "default"},
+                                                                                                                        {"feed_id": "mean-noise", "group_id": "default"}]},
                                    {"name": "Version", "key": "version", "visual_type": "text", "description": "", "properties": {"static": False, "fontSize": "12", "showIcon": False, "decimalPlaces": "-1"},
                                     "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 3, "block_feeds": [{"feed_id": "version", "group_id": "default"}]}]
 enviro_aio_premium_plus_blocks = [{"name": "Temperature Gauge", "key": "temperature-gauge", "visual_type": "gauge", "description": "", "properties": {"showIcon": True, "icon": "thermometer", "label": "\u00b0 C", "minValue": "0", "maxValue": "40",
@@ -267,7 +271,8 @@ enviro_aio_premium_plus_noise_blocks = [{"name": "Temperature Gauge", "key": "te
                                          "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "lux", "group_id": "default"}]},
                                         {"name": "Noise Level Chart", "key": "noise", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "dB(A)", "yAxisMin": "30", "yAxisMax": "", "decimalPlaces": "1",
                                                                                                                                                      "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
-                                         "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "noise", "group_id": "default"}]},
+                                         "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "max-noise", "group_id": "default"}, {"feed_id": "min-noise", "group_id": "default"},
+                                                                                                                        {"feed_id": "mean-noise", "group_id": "default"}]},
                                         {"name": "Version", "key": "version", "visual_type": "text", "description": "", "properties": {"static": False, "fontSize": "12", "showIcon": False, "decimalPlaces": "-1"},
                                          "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 3, "block_feeds": [{"feed_id": "version", "group_id": "default"}]}]
 enviro_aio_basic_air_blocks = [{"name": "Air Quality Level Gauge", "key": "air-quality-level", "visual_type": "gauge", "description": "", "properties": {"showIcon": False, "label": "Level", "minValue": "0", "maxValue": "3.9",
@@ -465,8 +470,7 @@ def create_aio_enviro_blocks():
                     print(household, dashboard_blocks[block]["name"], 'Block Creation Successful')
             elif (dashboard_blocks[block]["name"] == "Temperature Chart" or dashboard_blocks[block]["name"] == "Humidity Chart" or dashboard_blocks[block]["name"] == "Light Level Chart" or
                   dashboard_blocks[block]["name"] == "Air Quality Level Chart" or dashboard_blocks[block]["name"] == "Reducing Gas Chart" or
-                  dashboard_blocks[block]["name"] == "Oxidising Gas Chart" or dashboard_blocks[block]["name"] == "Ammonia Gas Chart" or
-                  dashboard_blocks[block]["name"] == "Noise Level Chart"):
+                  dashboard_blocks[block]["name"] == "Oxidising Gas Chart" or dashboard_blocks[block]["name"] == "Ammonia Gas Chart"):
                 # Can be only one of these per property and they have more than one block_feed each
                 for key in dashboard_blocks[block]:
                     if key != "block_feeds":
@@ -507,8 +511,8 @@ def create_aio_enviro_blocks():
                         block_error_reason = reason
                     else:
                         print(household, location, dashboard_blocks[block]["name"], 'Block Creation Successful')
-            elif (dashboard_blocks[block]["name"] == "Carbon Dioxide Gauge" or dashboard_blocks[block]["name"] == "TVOC Gauge" or
-                   dashboard_blocks[block]["name"] == "Carbon Dioxide Chart" or dashboard_blocks[block]["name"] == "TVOC Chart"): # Can only be Indoor Blocks
+            elif (dashboard_blocks[block]["name"] == "eCarbon Dioxide Gauge" or dashboard_blocks[block]["name"] == "TVOC Gauge" or
+                   dashboard_blocks[block]["name"] == "eCarbon Dioxide Chart" or dashboard_blocks[block]["name"] == "TVOC Chart"): # Can only be Indoor Blocks
                 location = "Indoor"
                 for key in dashboard_blocks[block]:
                     if key == "name":

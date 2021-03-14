@@ -1,4 +1,4 @@
-{"version": "Base-6.x",
+{"version": "Base-6.5",
 "temp_offset": 0,
 "altitude": 23,
 "enable_display": true,
@@ -20,6 +20,7 @@
 "mqtt_user_name": "<>",
 "mqtt_password": "<>",
 "enable_luftdaten": false,
+"enable_luftdaten_noise": false,
 "enable_climate_and_gas_logging": false,
 "enable_particle_sensor": true,
 "enable_eco2_tvoc": false,

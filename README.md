@@ -23,7 +23,7 @@ mqtt support is provided to use external temperature and humidity sensors (for d
 
 An alternative to using mqtt-linked indoor and outdoor Enviro Monitors to get outdoor readings on an indoor Enviro Monitor, is to configure the indoor Enviro Monitor to capture Luftdaten readings or Adafruit IO feeds from another Enviro Monitor.
 
-[Luftdaten]( https://github.com/pimoroni/enviroplus-python/blob/master/examples/luftdaten.py)  interworking is essentially unchanged, other than the ability to use external temperature and humidity sensors via mqtt messages.
+[Luftdaten]( https://github.com/pimoroni/enviroplus-python/blob/master/examples/luftdaten.py) interworking has been modified to support the addition of noise measurements and the ability to use external temperature and humidity sensors via mqtt messages. Currently, Luftdaten doesn't allow three sensors per node without a manual request to their technical support. Once that is available, noise data can be sent by setting "enable_luftdaten_noise" in the config.json file to true.
 
 The same [Enviro+ setup]( https://github.com/pimoroni/enviroplus-python/blob/master/README.md) is used and the [config.json](https://github.com/roscoe81/enviro-monitor/blob/master/Config/config.json) file parameters are used to customise its functionality. A description of the config.json file's parameters is [here](https://github.com/roscoe81/enviro-monitor/blob/master/Config/Config_README.md).
 
@@ -137,10 +137,11 @@ If enabled, Adafruit IO feed updates are generated every 10 minutes. The config 
 The naming convention for each Enviro Monitor’s Adafruit IO feeds, dashboards or blocks, is to use the name of the household, followed by the location of the relevant Enviro Monitor’s location within that household, as a prefix for each feed, dashboard or block. You choose a suitable name for "aio_household_prefix", and "aio_location_prefix" can either be “indoor” or “outdoor”. For example, setting “aio_household_prefix" to “home” and "aio_location_prefix" to “outdoor” will set the prefix of each feed’s name as “Home Outdoor “ and the prefix of each feed’s key as “home-outdoor-“. So, the Temperature Feed will have the name “Home Outdoor Temperature” and the key “home-outdoor-temperature”. The dashboard will have the name “Home” and key “home” and the temperature gauge block within that dashboard will have the name “Outdoor Temperature Gauge” and the key “outdoor-temperature-gauge”.
 
 ### Adafruit IO Packages
-Six Adafruit IO package options are available: "Premium" with 14 data feeds per Enviro, "Premium Noise" with 15 data feeds per Enviro, "Premium Plus" with 16 data feeds per Enviro (i.e. the addition of eCO2 and TVOC through the optional SGP30 sensor), "Premium Plus Noise" with 17 data feeds per Enviro which all need an Adafruit IO+ account; "Basic Air" with 5 air quality data streams (Air Quality Level, Air Quality Text, PM1, PM2.5 and PM10) and "Basic Combo" with 5 air quality/climate streams (Air Quality Level, Weather Forecast Icon, Temperature, Humidity and Air Pressure). 
+Six Adafruit IO package options are available: "Premium" with 14 data feeds per Enviro, "Premium Noise" with 17 data feeds per Enviro, "Premium Plus" with 16 data feeds per Enviro (i.e. the addition of eCO2 and TVOC through the optional SGP30 sensor), "Premium Plus Noise" with 19 data feeds per Enviro which all need an Adafruit IO+ account; "Basic Air" with 5 air quality data streams (Air Quality Level, Air Quality Text, PM1, PM2.5 and PM10) and "Basic Combo" with 5 air quality/climate streams (Air Quality Level, Weather Forecast Icon, Temperature, Humidity and Air Pressure). 
 
 ### Use of Adafruit IO Noise Packages
 Using the "Premium Noise" and "Premium Plus Noise" Adafruit IO packages requires configuring and enabling Noise measurements in the Enviro, using the relevant setup instructions.
+Version 6.5 changes the noise feeds and dashboards to show Max, Min and Mean noise levels between feed updates, whereas prior versions only showed Max noise levels between feed updates.
 
 ## License
 This project is licensed under the MIT License - see the LICENSE.md file for details

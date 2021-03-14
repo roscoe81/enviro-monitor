@@ -39,7 +39,7 @@ except ImportError:
     from smbus import SMBus
 import logging
 
-monitor_version = "6.4g - Gen"
+monitor_version = "6.5 - Gen"
 
 logging.basicConfig(
     format='%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s',
@@ -138,6 +138,11 @@ def retrieve_config():
         enable_noise = parsed_config_parameters['enable_noise']
     else:
         enable_noise = False
+    if 'enable_luftdaten_noise' in parsed_config_parameters:
+        enable_luftdaten_noise = parsed_config_parameters['enable_luftdaten_noise']
+    else:
+        enable_luftdaten_noise = False
+            
     incoming_temp_hum_mqtt_topic = parsed_config_parameters['incoming_temp_hum_mqtt_topic']
     incoming_temp_hum_mqtt_sensor_name = parsed_config_parameters['incoming_temp_hum_mqtt_sensor_name']
     incoming_barometer_mqtt_topic = parsed_config_parameters['incoming_barometer_mqtt_topic']
@@ -153,7 +158,7 @@ def retrieve_config():
             aio_feed_sequence, aio_household_prefix, aio_location_prefix, aio_package, enable_send_data_to_homemanager,
             enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality,
             mqtt_broker_name, mqtt_username, mqtt_password, outdoor_source_type, outdoor_source_id, enable_noise, enable_luftdaten,
-            enable_climate_and_gas_logging, enable_particle_sensor, enable_eco2_tvoc, gas_daily_r0_calibration_hour,
+            enable_luftdaten_noise, enable_climate_and_gas_logging, enable_particle_sensor, enable_eco2_tvoc, gas_daily_r0_calibration_hour,
             reset_gas_sensor_calibration, incoming_temp_hum_mqtt_topic, incoming_temp_hum_mqtt_sensor_name,
             incoming_barometer_mqtt_topic, incoming_barometer_sensor_id, indoor_outdoor_function, mqtt_client_name,
             outdoor_mqtt_topic, indoor_mqtt_topic, city_name, time_zone,
@@ -164,7 +169,7 @@ def retrieve_config():
   aio_household_prefix, aio_location_prefix, aio_package, enable_send_data_to_homemanager,
   enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality, mqtt_broker_name,
   mqtt_username, mqtt_password, outdoor_source_type, outdoor_source_id, enable_noise, enable_luftdaten,
-  enable_climate_and_gas_logging,  enable_particle_sensor, enable_eco2_tvoc, gas_daily_r0_calibration_hour,
+  enable_luftdaten_noise, enable_climate_and_gas_logging,  enable_particle_sensor, enable_eco2_tvoc, gas_daily_r0_calibration_hour,
   reset_gas_sensor_calibration, incoming_temp_hum_mqtt_topic, incoming_temp_hum_mqtt_sensor_name,
   incoming_barometer_mqtt_topic, incoming_barometer_sensor_id, indoor_outdoor_function, mqtt_client_name,
   outdoor_mqtt_topic, indoor_mqtt_topic, city_name, time_zone, custom_locations) = retrieve_config()
@@ -438,7 +443,7 @@ def log_climate_and_gas(run_time, own_data, raw_red_rs, raw_oxi_rs, raw_nh3_rs, 
                                 'Red': own_data["Red"][1], 'NH3': own_data["NH3"][1], 'Raw OxiRS': raw_oxi_rs,
                                 'Raw RedRS': raw_red_rs, 'Raw NH3RS': raw_nh3_rs}
     print('Logging Environment Data.', environment_log_data)
-    with open('/home/pi/AQI_Logs/environment_log_data.txt', 'a') as f:
+    with open('<Your Environment Log File Location Here>', 'a') as f:
         f.write(',\n' + json.dumps(environment_log_data))
     
 # Calculate Air Quality Level
@@ -581,19 +586,20 @@ def send_data_to_aio(feed_key, data):
             print('aio ', reason)
     return not resp_error
 
-def send_to_luftdaten(luft_values, id, enable_particle_sensor):
+def send_to_luftdaten(luft_values, id, enable_particle_sensor, enable_noise, luft_noise_values):
     print("Sending Data to Luftdaten")
     if enable_particle_sensor:
         pm_values = dict(i for i in luft_values.items() if i[0].startswith("P"))
     temp_values = dict(i for i in luft_values.items() if not i[0].startswith("P"))
     resp1_exception = False
     resp2_exception = False
+    resp3_exception = False
 
     if enable_particle_sensor:
         try:
             resp_1 = requests.post("https://api.luftdaten.info/v1/push-sensor-data/",
                      json={
-                         "software_version": "enviro-plus 0.0.1",
+                         "software_version": "northclff_enviro_monitor " + monitor_version,
                          "sensordatavalues": [{"value_type": key, "value": val} for
                                               key, val in pm_values.items()]
                      },
@@ -618,7 +624,7 @@ def send_to_luftdaten(luft_values, id, enable_particle_sensor):
     try:
         resp_2 = requests.post("https://api.luftdaten.info/v1/push-sensor-data/",
                  json={
-                     "software_version": "enviro-plus 0.0.1",
+                     "software_version": "northclff_enviro_monitor " + monitor_version,
                      "sensordatavalues": [{"value_type": key, "value": val} for
                                           key, val in temp_values.items()]
                  },
@@ -640,11 +646,48 @@ def send_to_luftdaten(luft_values, id, enable_particle_sensor):
         resp2_exception = True
         print('Luftdaten Climate Request Error', e)
 
-    if resp1_exception == False and resp2_exception == False:
-        if resp_1.ok and resp_2.ok:
-            return True
+    if enable_noise and enable_luftdaten_noise and luft_noise_values != []:
+        noise_values = [{"value_type": "noise_LAeq", "value": "{:.2f}".format(sum(luft_noise_values)/len(luft_noise_values))},
+                         {"value_type": "noise_LA_min", "value": "{:.2f}".format(min(luft_noise_values))},
+                          {"value_type": "noise_LA_max", "value": "{:.2f}".format(max(luft_noise_values))}]
+        print("Sending Luftdaten Noise Data", noise_values)
+        try:
+            resp_3 = requests.post("https://api.luftdaten.info/v1/push-sensor-data/",
+                     json={
+                         "software_version": "northclff_enviro_monitor " + monitor_version,
+                         "sensordatavalues": noise_values
+                     },
+                     headers={
+                         "X-PIN":   "15",
+                         "X-Sensor": id,
+                         "Content-Type": "application/json",
+                         "cache-control": "no-cache"
+                     },
+                    timeout=5
+            )
+        except requests.exceptions.ConnectionError as e:
+            resp3_exception = True
+            print('Luftdaten Noise Connection Error', e)
+        except requests.exceptions.Timeout as e:
+            resp3_exception = True
+            print('Luftdaten Noise Timeout Error', e)
+        except requests.exceptions.RequestException as e:
+            resp3_exception = True
+            print('Luftdaten Noise Request Error', e)
+        print(resp_3)
+            
+    if not (resp1_exception or resp2_exception):
+        if enable_noise and luft_noise_values != [] and enable_luftdaten_noise:
+            if not resp3_exception:
+                if resp_1.ok and resp_2.ok and resp_3.ok:
+                    return True
+                else:
+                    return False
         else:
-            return False
+            if resp_1.ok and resp_2.ok:
+                return True
+            else:
+                return False        
     else:
         return False
     
@@ -1337,7 +1380,7 @@ def update_aio(mqtt_values, forecast, aio_format, aio_forecast_text_format, aio_
                aio_air_quality_level_format, aio_air_quality_text_format, own_data, icon_air_quality_levels,
                aio_forecast, aio_package, gas_sensors_warm, air_quality_data, air_quality_data_no_gas,
                previous_aio_air_quality_level, previous_aio_air_quality_text, previous_aio_forecast_text,
-               previous_aio_forecast, own_aio_max_noise):
+               previous_aio_forecast, aio_noise_values):
     aio_resp = False # Set to True when there is at least one successful aio feed response
     aio_json = {}
     aio_path = '/feeds/'
@@ -1401,11 +1444,24 @@ def update_aio(mqtt_values, forecast, aio_format, aio_forecast_text_format, aio_
                 feed_resp = send_data_to_aio(aio_format[feed][0], mqtt_values[feed][0])
                 if feed_resp:
                     aio_resp = True
-        elif feed == "Noise":
+        elif feed == "Max Noise":
+            aio_noise_max = round(max(aio_noise_values), 1)
             #print('Sending', feed, 'Feed')
-            feed_resp = send_data_to_aio(aio_format[feed][0], own_aio_max_noise)
+            feed_resp = send_data_to_aio(aio_format[feed][0], aio_noise_max)
             if feed_resp:
                 aio_resp = True
+        elif feed == "Min Noise":
+            aio_noise_min = round(min(aio_noise_values), 1)
+            #print('Sending', feed, 'Feed')
+            feed_resp = send_data_to_aio(aio_format[feed][0], aio_noise_min)
+            if feed_resp:
+                aio_resp = True
+        elif feed == "Mean Noise":
+            aio_noise_mean = round(sum(aio_noise_values)/len(aio_noise_values), 1)
+            #print('Sending', feed, 'Feed')
+            feed_resp = send_data_to_aio(aio_format[feed][0], aio_noise_mean)
+            if feed_resp:
+                aio_resp = True       
         else: # Send the value if sending data other than noise, humidity or barometer
             # Only send gas data if the gas sensors are warm and calibrated
             if (feed != "Red" and feed != "Oxi" and feed != "NH3") or mqtt_values['Gas Calibrated']:
@@ -1730,9 +1786,10 @@ if enable_send_data_to_homemanager or enable_receive_data_from_homemanager or (e
 if enable_adafruit_io:
     # Set up Adafruit IO. aio_format{'measurement':[feed, is value in list format?]}
     # Barometer and Weather Forecast Feeds only have one feed per household (i.e. no location prefix)
-    # Four aio_packages: Basic Air (Air Quality Level, Air Quality Text, PM1,  PM2.5, PM10), Basic Combo
-    # (Air Quality Level, Weather Forecast Icon, Temp, Hum, Bar Feeds), Premium (All Feeds except eCO2 and TVOC)
-    # Premium Plus (All Feeds with eCO2 and TVOC)
+    # Six aio_packages: Basic Air (Air Quality Level, Air Quality Text, PM1,  PM2.5, PM10), Basic Combo
+    # (Air Quality Level, Weather Forecast Icon, Temp, Hum, Bar Feeds), Premium (All Feeds except Noise, eCO2 and TVOC)
+    # Premium Plus (All Feeds except Noise), Premium Noise (All Feeds eCO2 and TVOC)
+    # Premium Plus Noise(All Feeds)
     print('Setting up', aio_package, 'Adafruit IO')
     aio_url = "https://io.adafruit.com/api/v2/" + aio_user_name
     aio_feed_prefix = aio_household_prefix + '-' + aio_location_prefix
@@ -1762,7 +1819,8 @@ if enable_adafruit_io:
                       'P1': [aio_feed_prefix + "-pm1", False],'P2.5': [aio_feed_prefix + "-pm2-dot-5", False],
                       'P10': [aio_feed_prefix + "-pm10", False], 'Red': [aio_feed_prefix + "-reducing", False],
                       'Oxi': [aio_feed_prefix + "-oxidising", False], 'NH3': [aio_feed_prefix + "-ammonia", False],
-                      'Noise': [aio_feed_prefix + "-noise", False]}
+                      'Mean Noise': [aio_feed_prefix + "-mean-noise", False], 'Max Noise': [aio_feed_prefix + "-max-noise", False],
+                      'Min Noise': [aio_feed_prefix + "-min-noise", False]}
         aio_forecast_text_format = aio_household_prefix + "-weather-forecast-text"
         aio_forecast_icon_format = aio_household_prefix + "-weather-forecast-icon"
         aio_air_quality_level_format = aio_feed_prefix + "-air-quality-level"
@@ -1787,7 +1845,8 @@ if enable_adafruit_io:
                       'P10': [aio_feed_prefix + "-pm10", False], 'Red': [aio_feed_prefix + "-reducing", False],
                       'Oxi': [aio_feed_prefix + "-oxidising", False], 'NH3': [aio_feed_prefix + "-ammonia", False],
                       'CO2': [aio_feed_prefix + "-carbon-dioxide", False], 'VOC': [aio_feed_prefix + "-tvoc", False],
-                      'Noise': [aio_feed_prefix + "-noise", False]}
+                      'Mean Noise': [aio_feed_prefix + "-mean-noise", False], 'Max Noise': [aio_feed_prefix + "-max-noise", False],
+                      'Min Noise': [aio_feed_prefix + "-min-noise", False]}
         aio_forecast_text_format = aio_household_prefix + "-weather-forecast-text"
         aio_forecast_icon_format = aio_household_prefix + "-weather-forecast-icon"
         aio_air_quality_level_format = aio_feed_prefix + "-air-quality-level"
@@ -1898,10 +1957,11 @@ if enable_eco2_tvoc: # Set up SGP30 if it's enabled
 
 # Set up Noise Monitor
 own_noise_level = 0
+luft_noise_values = []
+aio_noise_values = []
 own_noise_max = 0
 own_noise_max_datetime = None
 own_noise_freq = [0, 0, 0] # Set up spl by frequency list
-own_aio_max_noise = 0
 noise_thresholds = (70, 90)
 own_noise_values = [[0,0] for i in range(26)]
 own_noise_freq_values = [[0,0,0,0] for i in range(8)]
@@ -2020,7 +2080,7 @@ if reset_gas_sensor_calibration: # Uses reset_gas_sensor_calibration in config t
     gas_sensors_warmup_time = startup_stabilisation_time
 
 if enable_adafruit_io: # Send Version info to Adafruit IO
-    if aio_package == "Premium Plus" or aio_package == "Premium" or aio_package == "Premium Plus Noise" or aio_package == "Premium Noise":
+    if aio_package == "Premium Plus" or aio_package == "Premium"or aio_package == "Premium Plus Noise" or aio_package == "Premium Noise":
         version_text = "Code: " + startup_mender_software_version + " Config: " + startup_mender_config_version
         print("Sending Startup Versions to Adafruit IO", version_text)
         feed_resp = send_data_to_aio(aio_version_text_format, version_text)
@@ -2046,10 +2106,13 @@ try:
                         own_noise_ratio = (weighted_noise_level)/noise_ref_level
                         new_noise_mqtt_value = False
                         if own_noise_ratio > 0:
-                            own_noise_level = round(20*math.log10(own_noise_ratio), 1)
+                            noise_level = 20*math.log10(own_noise_ratio)
+                            own_noise_level = round(noise_level, 1)
                             own_noise_values = own_noise_values[1:] + [[own_noise_level, 1]]
-                            # Capture Max sound level once display has been changed for > 2 seconds
+                            # Capture Max, Luftdaten and Adafruit IO sound levels and once display has been changed for > 2 seconds
                             if (time.time() - last_page) > 2:
+                                if enable_luftdaten and enable_luftdaten_noise:
+                                    luft_noise_values.append(round(noise_level, 2)) # Capture Luftdaten Noise Level
                                 if own_noise_level >= own_noise_max:
                                     own_noise_max = own_noise_level
                                     own_noise_max_event = datetime.now()
@@ -2058,8 +2121,7 @@ try:
                                     own_noise_max_datetime = {"Date": date_string, "Time": time_string}
                                     mqtt_values["Max Noise"] = round(own_noise_max, 1)
                                     mqtt_values["Max Noise Date Time"] = own_noise_max_datetime
-                                if own_noise_level >= own_aio_max_noise:
-                                    own_aio_max_noise = round(own_noise_level, 1)
+                                aio_noise_values.append(own_noise_level) # Capture Adafruit IO Noise Level
                                 if own_noise_level >= mqtt_values["Noise"]:
                                     mqtt_values["Noise"] = round(own_noise_level, 1)
                                     new_noise_mqtt_value = True
@@ -2116,7 +2178,8 @@ try:
                     with open('<Your Watchdog File Name Here>', 'w') as f:
                         f.write('Enviro Script Alive')
                 if enable_luftdaten: # Send data to Luftdaten if enabled
-                    luft_resp = send_to_luftdaten(luft_values, id, enable_particle_sensor)
+                    luft_resp = send_to_luftdaten(luft_values, id, enable_particle_sensor, enable_noise, luft_noise_values)
+                    luft_noise_values = [] #Reset Luftdaten Noise Values List after each attempted transmission
                     #logging.info("Luftdaten Response: {}\n".format("ok" if luft_resp else "failed"))
                     data_sent_to_luftdaten_or_aio = True
                     if luft_resp:
@@ -2206,8 +2269,8 @@ try:
                                        aio_forecast_icon_format, aio_air_quality_level_format, aio_air_quality_text_format,
                                        own_data, icon_air_quality_levels, aio_forecast, aio_package, gas_sensors_warm,
                                        air_quality_data, air_quality_data_no_gas, previous_aio_air_quality_level,
-                                       previous_aio_air_quality_text, previous_aio_forecast_text, previous_aio_forecast, own_aio_max_noise)
-                        own_aio_max_noise = 0 # Reset noise adafruit io max spl reading after each transmission to capture new max level
+                                       previous_aio_air_quality_text, previous_aio_forecast_text, previous_aio_forecast, aio_noise_values)
+                        aio_noise_values = [] # Reset noise Adafruit IO Noise Levels after each transmission
                         data_sent_to_luftdaten_or_aio = True
                         previous_aio_update_minute = window_minute
                         if aio_resp:
