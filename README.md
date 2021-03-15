@@ -17,13 +17,13 @@ Likewise, testing and regression analysis was used to provide time-based drift, 
 
 ## Note: Even though the accuracy has been improved, the readings are still not thoroughly and accurately calibrated and should not be relied upon for critical purposes or applications.
 
-Approximate noise levels measurements have been added to Version 6, based on [this repository](https://github.com/roscoe81/northcliff_spl_monitor). This feature is not to be used for accurate sound level measurements and only has a limited method of frequency compensation and calibration. This feature requires additional setup and after setup, needs to be enabled in the configuration file.
+Approximate noise levels measurements have been added to Version 6, based on [this repository](https://github.com/roscoe81/northcliff_spl_monitor). This feature is not to be used for accurate sound level measurements. Version 6.7 improves frequency compensation using [this](https://github.com/endolith/waveform_analysis/blob/master/waveform_analysis/weighting_filters/ABC_weighting.py#L29), but further work and calibration is required for accurate noise level measurements. This feature requires additional setup and after setup, needs to be enabled in the configuration file.
 
 mqtt support is provided to use external temperature and humidity sensors (for data logging and regression analysis), interworking between the monitor and a [home automation system](https://github.com/roscoe81/Home-Manager) and to support interworking between outdoor and indoor Enviro Monitors. That latter interworking allows the display of an indoor Enviro Monitor to cycle between indoor and outdoor readings.
 
 An alternative to using mqtt-linked indoor and outdoor Enviro Monitors to get outdoor readings on an indoor Enviro Monitor, is to configure the indoor Enviro Monitor to capture Luftdaten readings or Adafruit IO feeds from another Enviro Monitor.
 
-[Luftdaten]( https://github.com/pimoroni/enviroplus-python/blob/master/examples/luftdaten.py) interworking has been modified to support the addition of noise measurements and the ability to use external temperature and humidity sensors via mqtt messages. Currently, Luftdaten doesn't allow three sensors per node without a manual request to their technical support. Once that is available, noise data can be sent by setting "enable_luftdaten_noise" in the config.json file to true.
+[Luftdaten]( https://github.com/pimoroni/enviroplus-python/blob/master/examples/luftdaten.py) interworking has been modified to support the addition of noise measurements and the ability to use external temperature and humidity sensors via mqtt messages. Currently, Luftdaten doesn't allow three sensors per node without a manual request to their technical support. They also don't currently allow non-DNMS noise sensors. Once those policies are changed, noise data can be sent by setting "enable_luftdaten_noise" in the config.json file to true.
 
 The same [Enviro+ setup]( https://github.com/pimoroni/enviroplus-python/blob/master/README.md) is used and the [config.json](https://github.com/roscoe81/enviro-monitor/blob/master/Config/config.json) file parameters are used to customise its functionality. A description of the config.json file's parameters is [here](https://github.com/roscoe81/enviro-monitor/blob/master/Config/Config_README.md).
 
@@ -42,6 +42,16 @@ curl -sSL https://get.pimoroni.com/enviroplus | bash
 sudo python -m pip uninstall sounddevice
 
 sudo pip3 install sounddevice==0.3.15
+
+-------------------------------------------------
+
+For Versions 6.7 and later:
+
+sudo apt-get install python3-scipy
+
+sudo pip3 install git+https://github.com/endolith/waveform_analysis.git@master
+
+-------------------------------------------------
 
 Follow instructions at:
 https://learn.adafruit.com/adafruit-i2s-mems-microphone-breakout/raspberry-pi-wiring-test
@@ -77,7 +87,19 @@ Use the following instead of the documented text for ~/.asoundrc:
 26.	max_dB 30.0
 27.	}
 
+-------------------------------------------------
+
+For versions prior to Version 6.7:
+
 Use alsamixer to set adau7002 capture level to 50
+
+-------------------------------------------------
+
+For Version 6.7 and later:
+
+Use alsamixer to set adau7002 capture level to 10 (2.40dB Gain)
+
+-------------------------------------------------
 
 
 A [User Guide](https://github.com/roscoe81/enviro-monitor/blob/master/User%20Guide/Northcliff%20Enviro%20Monitor%20User%20Guide-Gen.pdf) provides guidance on the use of the monitor.

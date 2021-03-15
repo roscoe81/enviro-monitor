@@ -11,7 +11,6 @@ import ST7735
 import os
 import time
 from datetime import datetime, timedelta
-import numpy
 from fonts.ttf import RobotoMedium as UserFont
 import pytz
 from pytz import timezone
@@ -39,7 +38,7 @@ except ImportError:
     from smbus import SMBus
 import logging
 
-monitor_version = "6.5 - Gen"
+monitor_version = "6.7 - Gen"
 
 logging.basicConfig(
     format='%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s',
@@ -48,7 +47,6 @@ logging.basicConfig(
 logging.info("""Northcliff_Environment_Monitor.py - Pimoroni Enviro+ with noise measurement (and optional SGP30) sensor capture and display.
  Supports external sensor capture and Luftdaten, mqtt and Adafruit IO Updates
  Disclaimer: The noise measurement is not to be used for accurate sound level measurements.
- It only has a limited method of frequency compensation and requires calibration.
  
 #Note: you'll need to register with Luftdaten at:
 #https://meine.luftdaten.info/ and enter your Raspberry Pi
@@ -185,7 +183,10 @@ if enable_particle_sensor:
 
 if enable_noise:
     import sounddevice as sd
-    import numpy
+    import numpy as np
+    from numpy import pi, log10
+    from scipy.signal import zpk2tf, zpk2sos, freqs, sosfilt
+    from waveform_analysis.weighting_filters._filter_design import _zpkbilinear
                
 def read_pm_values(luft_values, mqtt_values, own_data, own_disp_values):
     if enable_particle_sensor:
@@ -852,9 +853,9 @@ def display_noise(location, selected_display_mode, noise_level, noise_max, noise
     else:
         for i in range(len(freq_values)):
             if freq_values[i][3] == 1:
-                draw.line((15+i*20, HEIGHT, 15+i*20, HEIGHT - (freq_values[i][2]-35)), fill=(0, 0, 255), width=5)
-                draw.line((10+i*20, HEIGHT, 10+i*20, HEIGHT - (freq_values[i][1]-35)), fill=(0, 255, 0), width=5)
-                draw.line((5+i*20, HEIGHT, 5+i*20, HEIGHT - (freq_values[i][0]-35)), fill=(255, 0, 0), width=5)
+                draw.line((15+i*20, HEIGHT, 15+i*20, HEIGHT - (freq_values[i][2]*0.747-45)), fill=(0, 0, 255), width=5)
+                draw.line((10+i*20, HEIGHT, 10+i*20, HEIGHT - (freq_values[i][1]*0.844-59)), fill=(0, 255, 0), width=5)
+                draw.line((5+i*20, HEIGHT, 5+i*20, HEIGHT - (freq_values[i][0]*1.14-103)), fill=(255, 0, 0), width=5)
         draw.text((0,0), location + " Noise Bands", font=noise_smallfont, fill=message_colour)
         disp.display(img) 
 
@@ -1546,17 +1547,103 @@ def process_noise_frames(captured_recording, frames, time, status):
     recording = captured_recording
     noise_sample_counter += 1
       
+def ABC_weighting(curve='A'):
+    """
+    Design of an analog weighting filter with A, B, or C curve.
+    Returns zeros, poles, gain of the filter.
+    """
+    if curve not in 'ABC':
+        raise ValueError('Curve type not understood')
+
+    # ANSI S1.4-1983 C weighting
+    #    2 poles on the real axis at "20.6 Hz" HPF
+    #    2 poles on the real axis at "12.2 kHz" LPF
+    #    -3 dB down points at "10^1.5 (or 31.62) Hz"
+    #                         "10^3.9 (or 7943) Hz"
+    #
+    # IEC 61672 specifies "10^1.5 Hz" and "10^3.9 Hz" points and formulas for
+    # derivation.  See _derive_coefficients()
+
+    z = [0, 0]
+    p = [-2*pi*20.598997057568145,
+         -2*pi*20.598997057568145,
+         -2*pi*12194.21714799801,
+         -2*pi*12194.21714799801]
+    k = 1
+
+    if curve == 'A':
+        # ANSI S1.4-1983 A weighting =
+        #    Same as C weighting +
+        #    2 poles on real axis at "107.7 and 737.9 Hz"
+        #
+        # IEC 61672 specifies cutoff of "10^2.45 Hz" and formulas for
+        # derivation.  See _derive_coefficients()
+
+        p.append(-2*pi*107.65264864304628)
+        p.append(-2*pi*737.8622307362899)
+        z.append(0)
+        z.append(0)
+
+    elif curve == 'B':
+        # ANSI S1.4-1983 B weighting
+        #    Same as C weighting +
+        #    1 pole on real axis at "10^2.2 (or 158.5) Hz"
+
+        p.append(-2*pi*10**2.2)  # exact
+        z.append(0)
+    b, a = zpk2tf(z, p, k)
+    k /= abs(freqs(b, a, [2*pi*1000])[1][0])
+
+    return np.array(z), np.array(p), k
+
+
+
+def A_weighting(fs, output='ba'):
+    """
+    Design of a digital A-weighting filter.
+    Designs a digital A-weighting filter for
+    sampling frequency `fs`.
+    Warning: fs should normally be higher than 20 kHz. For example,
+    fs = 48000 yields a class 1-compliant filter.
+    Parameters
+    ----------
+    fs : float
+        Sampling frequency
+    output : {'ba', 'zpk', 'sos'}, optional
+        Type of output:  numerator/denominator ('ba'), pole-zero ('zpk'), or
+        second-order sections ('sos'). Default is 'ba'.
+    Since this uses the bilinear transform, frequency response around fs/2 will
+    be inaccurate at lower sampling rates.
+    """
+    z, p, k = ABC_weighting('A')
+
+    # Use the bilinear transformation to get the digital filter.
+    z_d, p_d, k_d = _zpkbilinear(z, p, k, fs)
+
+    if output == 'zpk':
+        return z_d, p_d, k_d
+    elif output in {'ba', 'tf'}:
+        return zpk2tf(z_d, p_d, k_d)
+    elif output == 'sos':
+        return zpk2sos(z_d, p_d, k_d)
+    else:
+        raise ValueError("'%s' is not a valid output form." % output)
+
+def A_weight(signal, fs):
+    sos = A_weighting(fs, output='sos')
+    return sosfilt(sos, signal)
+
 def get_rms_at_frequency_ranges(recording, ranges, noise_sample_rate):
     """Return the RMS levels of frequencies in the given ranges.
 
     :param ranges: List of ranges including a start and end range
 
     """
-    magnitude = numpy.square(numpy.abs(numpy.fft.rfft(recording[:, 0], n=noise_sample_rate)))
+    magnitude = np.square(np.abs(np.fft.rfft(recording[:, 0], n=noise_sample_rate)))
     result = []
     for r in ranges:
         start, end = r
-        result.append(numpy.sqrt(numpy.mean(magnitude[start:end])))
+        result.append(np.sqrt(np.mean(magnitude[start:end])))
     return result
 
 class NullContextManager(object): # Dummy context manager that's used when noise is disabled
@@ -1979,7 +2066,7 @@ outdoor_noise_freq_values = [[0,0,0,0] for i in range(8)]
 if enable_noise:
     mqtt_values["Noise"] = 0
     mqtt_values["Noise Freq"] = 0
-    noise_ref_level = 0.0015 # Sets quiet level reference baseline for dB(A) measurements. Can be used for sound level baseline calibration
+    noise_ref_level = 0.000001 # Sets quiet level reference baseline for dB(A) measurements. Can be used for sound level baseline calibration
     global recording
     recording = []
     global noise_sample_counter
@@ -2097,13 +2184,11 @@ try:
                 if noise_sample_counter != noise_previous_sample_count: # Only process new sample
                     noise_previous_sample_count = noise_sample_counter
                     if noise_sample_counter > 10: # Wait for microphone stability
-                        recording_offset = numpy.mean(recording)
+                        recording_offset = np.mean(recording)
                         recording = recording - recording_offset # Remove remaining microphone DC Offset
-                        amps = get_rms_at_frequency_ranges(recording, [(30, 100), (100, 500), (500, 20000)], noise_sample_rate)
-                        amps[0] *= 0.0562 # Adjust lowest frequencies RMS level by -25dB to approximate A compensation curve
-                        amps[1] *= 0.316 # Adjust upper low frequencies RMS level by -10db to approximate A compensation curve
-                        weighted_noise_level = sum(amps)/3 # Take mean of adjusted RMS levels
-                        own_noise_ratio = (weighted_noise_level)/noise_ref_level
+                        weighted_recording = A_weight(recording, noise_sample_rate)
+                        weighted_rms = np.sqrt(np.mean(np.square(weighted_recording)))
+                        own_noise_ratio = (weighted_rms)/noise_ref_level
                         new_noise_mqtt_value = False
                         if own_noise_ratio > 0:
                             noise_level = 20*math.log10(own_noise_ratio)
@@ -2125,6 +2210,7 @@ try:
                                 if own_noise_level >= mqtt_values["Noise"]:
                                     mqtt_values["Noise"] = round(own_noise_level, 1)
                                     new_noise_mqtt_value = True
+                        amps = get_rms_at_frequency_ranges(weighted_recording, [(20, 500), (500, 2000), (2000, 20000)], noise_sample_rate)
                         own_noise_ratio_freq = [n/noise_ref_level for n in amps]
                         all_noise_ratio_freq_ok = True
                         for noise_ratio in own_noise_ratio_freq: # Ensure that ratios are > 0
@@ -2526,4 +2612,5 @@ except KeyboardInterrupt:
 # https://github.com/pimoroni/sgp30-python
 # https://github.com/pimoroni/enviroplus-python/blob/master/examples/noise-amps-at-freqs.py
 # https://github.com/home-assistant-ecosystem/python-luftdaten
+# https://github.com/endolith/waveform_analysis/blob/master/waveform_analysis/weighting_filters/ABC_weighting.py#L29
 # Weather Forecast based on www.worldstormcentral.co/law_of_storms/secret_law_of_storms.html by R. J. Ellis
