@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor Adafruit IO Feed Setup 7.11-Gen Max, Min and Mean Noise
+#Northcliff Environment Monitor Adafruit IO Feed Setup 7.12-Gen Max, Min and Mean Noise
 import requests
 import json
 
@@ -22,7 +22,7 @@ enviro_aio_premium_feeds = {"Temperature": "temperature", "Humidity": "humidity"
                     "PM10": "pm10", "Reducing": "reducing", "Oxidising": "oxidising", "Ammonia": "ammonia", "Air Quality Level": "air-quality-level", "Air Quality Text": "air-quality-text",
                     "Weather Forecast Text": "weather-forecast", "Weather Forecast Icon": "weather-forecast-icon", "Version": "version"}
 enviro_aio_premium_noise_feeds = {"Temperature": "temperature", "Humidity": "humidity", "Barometer": "barometer", "Lux": "lux", "PM1": "pm1", "PM2.5": "pm2-dot-5",
-                    "PM10": "pm10", "Reducing": "reducing", "Oxidising": "oxidising", "Ammonia": "ammonia", "Max Noise": "max-noise", "Min Noise": "min-noise", "Min Noise": "mean-noise",
+                    "PM10": "pm10", "Reducing": "reducing", "Oxidising": "oxidising", "Ammonia": "ammonia", "Max Noise": "max-noise", "Min Noise": "min-noise", "Mean Noise": "mean-noise",
                                   "Air Quality Level": "air-quality-level", "Air Quality Text": "air-quality-text",
                     "Weather Forecast Text": "weather-forecast", "Weather Forecast Icon": "weather-forecast-icon", "Version": "version"}
 enviro_aio_premium_plus_feeds = {"Temperature": "temperature", "Humidity": "humidity", "Barometer": "barometer", "Lux": "lux", "PM1": "pm1", "PM2.5": "pm2-dot-5",
