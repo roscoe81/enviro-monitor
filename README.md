@@ -35,7 +35,7 @@ Successful execution of this setup is necessary before enabling noise measuremen
 
 sudo apt-get update
 
-sudo apt-get-upgrade
+sudo apt-get upgrade
 
 curl -sSL https://get.pimoroni.com/enviroplus | bash
 
