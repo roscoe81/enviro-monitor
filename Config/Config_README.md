@@ -45,7 +45,9 @@ The config.json file is used to set the Enviro Monitor’s configuration. It has
 
 "enable_luftdaten": Set to true to send data to Luftdaten, otherwise set to false
 
-"enable_luftdaten_noise": Set to true to send noise data to Luftdaten ("enable_luftdaten" and "enable_noise" must also be set to true), otherwise set to false. Luftdaten doesn't currently allow three sensors per node without a manual request to their technical support
+"enable_luftdaten_noise": Set to true to send noise data to Luftdaten ("enable_luftdaten" and "enable_noise" must also be set to true), otherwise set to false.
+
+"disable_luftdaten_sensor_upload": Luftdaten currently only supports two sensors per node. When enable_luftdaten_noise is true, this must be set to either 'Climate' to disable Luftdaten climate reading uploads or 'PM' to disable Luftdaten air particle reading uploads. Set to 'None' when enable_luftdaten_noise is false
 
 "enable_climate_and_gas_logging": Set to true to log data, otherwise set to false
 

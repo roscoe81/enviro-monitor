@@ -38,7 +38,7 @@ except ImportError:
     from smbus import SMBus
 import logging
 
-monitor_version = "6.7 - Gen"
+monitor_version = "6.10 - Gen"
 
 logging.basicConfig(
     format='%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s',
@@ -132,15 +132,32 @@ def retrieve_config():
         # {"User Name": "<aio_user_name>", "Key": "<aio_key>", "Household Name": "<aio_household_name>"} for Adafruit IO
     else:
         outdoor_source_id = {}
-    if 'enable_noise' in parsed_config_parameters:
+    if 'enable_noise' in parsed_config_parameters: # Enables Noise level sensing
         enable_noise = parsed_config_parameters['enable_noise']
     else:
         enable_noise = False
-    if 'enable_luftdaten_noise' in parsed_config_parameters:
+    if 'enable_luftdaten_noise' in parsed_config_parameters: # Enables Noise level uploads to Luftdaten. enable_noise must also be set to true for this to work
         enable_luftdaten_noise = parsed_config_parameters['enable_luftdaten_noise']
     else:
         enable_luftdaten_noise = False
-            
+    if 'disable_luftdaten_sensor_upload' in parsed_config_parameters: # Luftdaten currently only supports two sensors per node
+        # When enable_luftdaten_noise is true, this must be set to either 'Climate' to disable climate reading uploads or 'PM' to disable air particle reading uploads
+        # Set to 'None' when enable_luftdaten_noise is false
+        disable_luftdaten_sensor_upload = parsed_config_parameters['disable_luftdaten_sensor_upload']
+    else:
+        disable_luftdaten_sensor_upload = 'None'
+    # Correct any Luftdaten Noise misconfigurations
+    if not enable_noise:
+        disable_luftdaten_sensor_upload = 'None'
+        if enable_luftdaten_noise:
+            print('Noise sensor must be enabled in order to enable Luftdaten Noise. Disabling Luftdaten Noise')
+            enable_luftdaten_noise = False
+    else:
+        if enable_luftdaten_noise and disable_luftdaten_sensor_upload == 'None':
+            # Comment out next two lines once Luftdaten supports three sensors per node
+            print('Luftdaten currently only supports two sensors and three have been enabled. Disabling Luftdaten Climate uploads')
+            disable_luftdaten_sensor_upload = 'Climate'
+            pass
     incoming_temp_hum_mqtt_topic = parsed_config_parameters['incoming_temp_hum_mqtt_topic']
     incoming_temp_hum_mqtt_sensor_name = parsed_config_parameters['incoming_temp_hum_mqtt_sensor_name']
     incoming_barometer_mqtt_topic = parsed_config_parameters['incoming_barometer_mqtt_topic']
@@ -156,10 +173,10 @@ def retrieve_config():
             aio_feed_sequence, aio_household_prefix, aio_location_prefix, aio_package, enable_send_data_to_homemanager,
             enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality,
             mqtt_broker_name, mqtt_username, mqtt_password, outdoor_source_type, outdoor_source_id, enable_noise, enable_luftdaten,
-            enable_luftdaten_noise, enable_climate_and_gas_logging, enable_particle_sensor, enable_eco2_tvoc, gas_daily_r0_calibration_hour,
-            reset_gas_sensor_calibration, incoming_temp_hum_mqtt_topic, incoming_temp_hum_mqtt_sensor_name,
-            incoming_barometer_mqtt_topic, incoming_barometer_sensor_id, indoor_outdoor_function, mqtt_client_name,
-            outdoor_mqtt_topic, indoor_mqtt_topic, city_name, time_zone,
+            enable_luftdaten_noise, disable_luftdaten_sensor_upload, enable_climate_and_gas_logging, enable_particle_sensor,
+            enable_eco2_tvoc, gas_daily_r0_calibration_hour, reset_gas_sensor_calibration, incoming_temp_hum_mqtt_topic,
+            incoming_temp_hum_mqtt_sensor_name, incoming_barometer_mqtt_topic, incoming_barometer_sensor_id,
+            indoor_outdoor_function, mqtt_client_name, outdoor_mqtt_topic, indoor_mqtt_topic, city_name, time_zone,
             custom_locations)
 
 # Config Setup
@@ -167,8 +184,8 @@ def retrieve_config():
   aio_household_prefix, aio_location_prefix, aio_package, enable_send_data_to_homemanager,
   enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality, mqtt_broker_name,
   mqtt_username, mqtt_password, outdoor_source_type, outdoor_source_id, enable_noise, enable_luftdaten,
-  enable_luftdaten_noise, enable_climate_and_gas_logging,  enable_particle_sensor, enable_eco2_tvoc, gas_daily_r0_calibration_hour,
-  reset_gas_sensor_calibration, incoming_temp_hum_mqtt_topic, incoming_temp_hum_mqtt_sensor_name,
+  enable_luftdaten_noise, disable_luftdaten_sensor_upload, enable_climate_and_gas_logging,  enable_particle_sensor, enable_eco2_tvoc,
+  gas_daily_r0_calibration_hour, reset_gas_sensor_calibration, incoming_temp_hum_mqtt_topic, incoming_temp_hum_mqtt_sensor_name,
   incoming_barometer_mqtt_topic, incoming_barometer_sensor_id, indoor_outdoor_function, mqtt_client_name,
   outdoor_mqtt_topic, indoor_mqtt_topic, city_name, time_zone, custom_locations) = retrieve_config()
 
@@ -587,16 +604,19 @@ def send_data_to_aio(feed_key, data):
             print('aio ', reason)
     return not resp_error
 
-def send_to_luftdaten(luft_values, id, enable_particle_sensor, enable_noise, luft_noise_values):
+def send_to_luftdaten(luft_values, id, enable_particle_sensor, enable_noise, luft_noise_values, disable_luftdaten_sensor_upload):
     print("Sending Data to Luftdaten")
-    if enable_particle_sensor:
-        pm_values = dict(i for i in luft_values.items() if i[0].startswith("P"))
-    temp_values = dict(i for i in luft_values.items() if not i[0].startswith("P"))
-    resp1_exception = False
-    resp2_exception = False
-    resp3_exception = False
+    pm_send_attempt = False
+    climate_send_attempt = False
+    noise_send_attempt = False
+    all_responses_ok = True
+    resp_1_exception = False
+    resp_2_exception = False
+    resp_3_exception = False
 
-    if enable_particle_sensor:
+    if enable_particle_sensor and disable_luftdaten_sensor_upload != 'PM':
+        pm_values = dict(i for i in luft_values.items() if i[0].startswith("P"))
+        pm_send_attempt = True
         try:
             resp_1 = requests.post("https://api.luftdaten.info/v1/push-sensor-data/",
                      json={
@@ -613,45 +633,49 @@ def send_to_luftdaten(luft_values, id, enable_particle_sensor, enable_noise, luf
                     timeout=5
             )
         except requests.exceptions.ConnectionError as e:
-            resp1_exception = True
+            resp_1_exception = True
             print('Luftdaten PM Connection Error', e)
         except requests.exceptions.Timeout as e:
-            resp1_exception = True
+            resp_1_exception = True
             print('Luftdaten PM Timeout Error', e)
         except requests.exceptions.RequestException as e:
-            resp1_exception = True
+            resp_1_exception = True
             print('Luftdaten PM Request Error', e)
 
-    try:
-        resp_2 = requests.post("https://api.luftdaten.info/v1/push-sensor-data/",
-                 json={
-                     "software_version": "northclff_enviro_monitor " + monitor_version,
-                     "sensordatavalues": [{"value_type": key, "value": val} for
-                                          key, val in temp_values.items()]
-                 },
-                 headers={
-                     "X-PIN":   "11",
-                     "X-Sensor": id,
-                     "Content-Type": "application/json",
-                     "cache-control": "no-cache"
-                 },
-                timeout=5
-        )
-    except requests.exceptions.ConnectionError as e:
-        resp2_exception = True
-        print('Luftdaten Climate Connection Error', e)
-    except requests.exceptions.Timeout as e:
-        resp2_exception = True
-        print('Luftdaten Climate Timeout Error', e)
-    except requests.exceptions.RequestException as e:
-        resp2_exception = True
-        print('Luftdaten Climate Request Error', e)
+    if disable_luftdaten_sensor_upload != 'Climate':
+        temp_values = dict(i for i in luft_values.items() if not i[0].startswith("P"))
+        climate_send_attempt = True
+        try:
+            resp_2 = requests.post("https://api.luftdaten.info/v1/push-sensor-data/",
+                     json={
+                         "software_version": "northclff_enviro_monitor " + monitor_version,
+                         "sensordatavalues": [{"value_type": key, "value": val} for
+                                              key, val in temp_values.items()]
+                     },
+                     headers={
+                         "X-PIN":   "11",
+                         "X-Sensor": id,
+                         "Content-Type": "application/json",
+                         "cache-control": "no-cache"
+                     },
+                    timeout=5
+            )
+        except requests.exceptions.ConnectionError as e:
+            resp_2_exception = True
+            print('Luftdaten Climate Connection Error', e)
+        except requests.exceptions.Timeout as e:
+            resp_2_exception = True
+            print('Luftdaten Climate Timeout Error', e)
+        except requests.exceptions.RequestException as e:
+            resp_2_exception = True
+            print('Luftdaten Climate Request Error', e)
 
     if enable_noise and enable_luftdaten_noise and luft_noise_values != []:
         noise_values = [{"value_type": "noise_LAeq", "value": "{:.2f}".format(sum(luft_noise_values)/len(luft_noise_values))},
                          {"value_type": "noise_LA_min", "value": "{:.2f}".format(min(luft_noise_values))},
                           {"value_type": "noise_LA_max", "value": "{:.2f}".format(max(luft_noise_values))}]
         print("Sending Luftdaten Noise Data", noise_values)
+        noise_send_attempt = True
         try:
             resp_3 = requests.post("https://api.luftdaten.info/v1/push-sensor-data/",
                      json={
@@ -667,30 +691,29 @@ def send_to_luftdaten(luft_values, id, enable_particle_sensor, enable_noise, luf
                     timeout=5
             )
         except requests.exceptions.ConnectionError as e:
-            resp3_exception = True
+            resp_3_exception = True
             print('Luftdaten Noise Connection Error', e)
         except requests.exceptions.Timeout as e:
-            resp3_exception = True
+            resp_3_exception = True
             print('Luftdaten Noise Timeout Error', e)
         except requests.exceptions.RequestException as e:
-            resp3_exception = True
+            resp_3_exception = True
             print('Luftdaten Noise Request Error', e)
-        print(resp_3)
+        #print(resp_3)
             
-    if not (resp1_exception or resp2_exception):
-        if enable_noise and luft_noise_values != [] and enable_luftdaten_noise:
-            if not resp3_exception:
-                if resp_1.ok and resp_2.ok and resp_3.ok:
-                    return True
-                else:
-                    return False
-        else:
-            if resp_1.ok and resp_2.ok:
-                return True
-            else:
-                return False        
+    if not (resp_1_exception or resp_2_exception or resp_3_exception):
+        if pm_send_attempt:
+            if not resp_1.ok:
+                all_responses_ok = False
+        if climate_send_attempt:
+            if not resp_2.ok:
+                all_responses_ok = False
+        if noise_send_attempt:
+            if not resp_3.ok:
+                all_responses_ok = False
     else:
-        return False
+        all_responses_ok = False
+    return all_responses_ok
     
 def on_connect(client, userdata, flags, rc):
     es.print_update('Northcliff Environment Monitor Connected with result code ' + str(rc))
@@ -1318,34 +1341,36 @@ def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, max
     time_string = local_dt.strftime("%H:%M") + '  ' + location
     img = overlay_text(background, (0 + margin, 0 + margin), time_string, font_smm)
     img = overlay_text(img, (WIDTH - margin, 0 + margin), date_string, font_smm, align_right=True)
-    temp_string = f"{data['Temp'][1]:.0f}°C"
-    img = overlay_text(img, (68, 18), temp_string, font_smm, align_right=True)
+    temp_string = f"{data['Temp'][1]:.1f}°C"
+    img = overlay_text(img, (78, 18), temp_string, font_smm, align_right=True)
     spacing = font_smm.getsize(temp_string)[1] + 1
     if mini_temp is not None and maxi_temp is not None:
-        range_string = f"{mini_temp:.0f}-{maxi_temp:.0f}"
+        if maxi_temp >= 0:
+            range_string = f"{round(mini_temp, 0):.0f} to {round(maxi_temp, 0):.0f}"
+        else:
+            range_string = f"{round(mini_temp, 0):.0f} to{round(maxi_temp, 0):.0f}"
     else:
         range_string = "------"
-    img = overlay_text(img, (68, 18 + spacing), range_string, font_sm, align_right=True, rectangle=True)
+    img = overlay_text(img, (78, 18 + spacing), range_string, font_sm, align_right=True, rectangle=True)
     temp_icon = Image.open(path + "/icons/temperature.png")
-    img.paste(temp_icon, (margin, 18), mask=temp_icon)
+    img.paste(temp_icon, (margin, 23), mask=temp_icon)
     # Humidity
     corr_humidity = data["Hum"][1]
-    humidity_string = f"{corr_humidity:.0f}%"
-    img = overlay_text(img, (68, 48), humidity_string, font_smm, align_right=True)
+    humidity_string = f"{corr_humidity:.1f}%"
+    img = overlay_text(img, (78, 48), humidity_string, font_smm, align_right=True)
     spacing = font_smm.getsize(humidity_string)[1] + 1
     humidity_desc = describe_humidity(corr_humidity).upper()
-    img = overlay_text(img, (68, 48 + spacing), humidity_desc, font_sm, align_right=True, rectangle=True)
+    img = overlay_text(img, (73, 48 + spacing), humidity_desc, font_sm, align_right=True, rectangle=True)
     humidity_icon = Image.open(path + "/icons/humidity-" + humidity_desc.lower() + ".png")
-    img.paste(humidity_icon, (margin, 48), mask=humidity_icon)                
+    img.paste(humidity_icon, (margin, 53), mask=humidity_icon)                
     # AQI
     aqi_string = f"{max_aqi[1]}: {max_aqi[0]}"
     img = overlay_text(img, (WIDTH - margin, 18), aqi_string, font_smm, align_right=True)
     spacing = font_smm.getsize(aqi_string)[1] + 1
     aqi_desc = icon_air_quality_levels[max_aqi[1]].upper()
     img = overlay_text(img, (WIDTH - margin - 1, 18 + spacing), aqi_desc, font_sm, align_right=True, rectangle=True)
-    #aqi_icon = Image.open(path + "/icons/aqi-" + icon_air_quality_levels[max_aqi[1]].lower() +  ".png")
     aqi_icon = Image.open(path + "/icons/aqi.png")
-    img.paste(aqi_icon, (80, 18), mask=aqi_icon)
+    img.paste(aqi_icon, (87, 23), mask=aqi_icon)
     # Pressure
     pressure = data["Bar"][1]
     pressure_string = f"{int(pressure)} {barometer_trend}"
@@ -1354,7 +1379,7 @@ def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, max
     spacing = font_smm.getsize(pressure_string)[1] + 1
     img = overlay_text(img, (WIDTH - margin - 1, 48 + spacing), pressure_desc, font_sm, align_right=True, rectangle=True)
     pressure_icon = Image.open(path + "/icons/weather-" + pressure_desc.lower() +  ".png")
-    img.paste(pressure_icon, (80, 48), mask=pressure_icon)
+    img.paste(pressure_icon, (87, 53), mask=pressure_icon)
     # Noise Level
     if enable_noise:
         if noise_level<=noise_thresholds[0]:
@@ -2264,7 +2289,7 @@ try:
                     with open('<Your Watchdog File Name Here>', 'w') as f:
                         f.write('Enviro Script Alive')
                 if enable_luftdaten: # Send data to Luftdaten if enabled
-                    luft_resp = send_to_luftdaten(luft_values, id, enable_particle_sensor, enable_noise, luft_noise_values)
+                    luft_resp = send_to_luftdaten(luft_values, id, enable_particle_sensor, enable_noise, luft_noise_values, disable_luftdaten_sensor_upload)
                     luft_noise_values = [] #Reset Luftdaten Noise Values List after each attempted transmission
                     #logging.info("Luftdaten Response: {}\n".format("ok" if luft_resp else "failed"))
                     data_sent_to_luftdaten_or_aio = True
