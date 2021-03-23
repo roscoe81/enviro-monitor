@@ -45,7 +45,7 @@ sudo pip3 install sounddevice==0.3.15
 
 -------------------------------------------------
 
-For Versions 6.7 and later:
+For Versions 6.7 and later, also do:
 
 sudo apt-get install python3-scipy
 
