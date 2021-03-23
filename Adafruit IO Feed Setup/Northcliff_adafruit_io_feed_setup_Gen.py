@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor Adafruit IO Feed Setup 7.12-Gen Max, Min and Mean Noise
+#Northcliff Environment Monitor Adafruit IO Feed Setup 7.13-Gen Max, Min and Mean Noise
 import requests
 import json
 
@@ -138,7 +138,7 @@ enviro_aio_premium_noise_blocks = [{"name": "Temperature Gauge", "key": "tempera
                                    {"name": "Light Level Chart", "key": "lux", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "Lux", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "0",
                                                                                                                                               "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
                                     "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "lux", "group_id": "default"}]},
-                                   {"name": "Noise Level Chart", "key": "noise", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "dB(A)", "yAxisMin": "30", "yAxisMax": "", "decimalPlaces": "1",
+                                   {"name": "Noise Level Chart", "key": "noise", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "dB(A)", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "1",
                                                                                                                                                 "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
                                     "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "max-noise", "group_id": "default"}, {"feed_id": "min-noise", "group_id": "default"},
                                                                                                                         {"feed_id": "mean-noise", "group_id": "default"}]},
@@ -269,7 +269,7 @@ enviro_aio_premium_plus_noise_blocks = [{"name": "Temperature Gauge", "key": "te
                                         {"name": "Light Level Chart", "key": "lux", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "Lux", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "0",
                                                                                                                                                    "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
                                          "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "lux", "group_id": "default"}]},
-                                        {"name": "Noise Level Chart", "key": "noise", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "dB(A)", "yAxisMin": "30", "yAxisMax": "", "decimalPlaces": "1",
+                                        {"name": "Noise Level Chart", "key": "noise", "visual_type": "line_chart", "description": "", "properties": {"xAxisLabel": "X", "yAxisLabel": "dB(A)", "yAxisMin": "", "yAxisMax": "", "decimalPlaces": "1",
                                                                                                                                                      "rawDataOnly": False, "steppedLine": False, "historyHours": 24},
                                          "row": 0, "column": 0, "dashboard_id": 0, "size_x": 8, "size_y": 5, "block_feeds": [{"feed_id": "max-noise", "group_id": "default"}, {"feed_id": "min-noise", "group_id": "default"},
                                                                                                                         {"feed_id": "mean-noise", "group_id": "default"}]},
