@@ -38,7 +38,7 @@ except ImportError:
     from smbus import SMBus
 import logging
 
-monitor_version = "6.10 - Gen"
+monitor_version = "6.11 - Gen"
 
 logging.basicConfig(
     format='%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s',
@@ -1357,10 +1357,10 @@ def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, max
     # Humidity
     corr_humidity = data["Hum"][1]
     humidity_string = f"{corr_humidity:.1f}%"
-    img = overlay_text(img, (78, 48), humidity_string, font_smm, align_right=True)
+    img = overlay_text(img, (73, 48), humidity_string, font_smm, align_right=True)
     spacing = font_smm.getsize(humidity_string)[1] + 1
     humidity_desc = describe_humidity(corr_humidity).upper()
-    img = overlay_text(img, (73, 48 + spacing), humidity_desc, font_sm, align_right=True, rectangle=True)
+    img = overlay_text(img, (68, 48 + spacing), humidity_desc, font_sm, align_right=True, rectangle=True)
     humidity_icon = Image.open(path + "/icons/humidity-" + humidity_desc.lower() + ".png")
     img.paste(humidity_icon, (margin, 53), mask=humidity_icon)                
     # AQI
@@ -1370,7 +1370,7 @@ def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, max
     aqi_desc = icon_air_quality_levels[max_aqi[1]].upper()
     img = overlay_text(img, (WIDTH - margin - 1, 18 + spacing), aqi_desc, font_sm, align_right=True, rectangle=True)
     aqi_icon = Image.open(path + "/icons/aqi.png")
-    img.paste(aqi_icon, (87, 23), mask=aqi_icon)
+    img.paste(aqi_icon, (85, 23), mask=aqi_icon)
     # Pressure
     pressure = data["Bar"][1]
     pressure_string = f"{int(pressure)} {barometer_trend}"
@@ -1379,7 +1379,7 @@ def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, max
     spacing = font_smm.getsize(pressure_string)[1] + 1
     img = overlay_text(img, (WIDTH - margin - 1, 48 + spacing), pressure_desc, font_sm, align_right=True, rectangle=True)
     pressure_icon = Image.open(path + "/icons/weather-" + pressure_desc.lower() +  ".png")
-    img.paste(pressure_icon, (87, 53), mask=pressure_icon)
+    img.paste(pressure_icon, (80, 53), mask=pressure_icon)
     # Noise Level
     if enable_noise:
         if noise_level<=noise_thresholds[0]:
