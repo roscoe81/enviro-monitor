@@ -17,7 +17,7 @@
 "outdoor_source_id": {},
 "enable_noise": false,
 "mqtt_broker_name": "<>",
-"mqtt_username": "",
+"mqtt_user_name": "",
 "mqtt_password": "",
 "enable_luftdaten": false,
 "enable_luftdaten_noise": false,
