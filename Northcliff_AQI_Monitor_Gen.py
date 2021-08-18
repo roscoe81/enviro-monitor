@@ -113,10 +113,10 @@ def retrieve_config():
         reset_gas_sensor_calibration = parsed_config_parameters['reset_gas_sensor_calibration']
     else:
         reset_gas_sensor_calibration = False
-    if 'mqtt_username' in parsed_config_parameters:
-        mqtt_username = parsed_config_parameters['mqtt_username']
+    if 'mqtt_user_name' in parsed_config_parameters:
+        mqtt_user_name = parsed_config_parameters['mqtt_user_name']
     else:
-        mqtt_username = None
+        mqtt_user_name = None
     if 'mqtt_password' in parsed_config_parameters:
         mqtt_password = parsed_config_parameters['mqtt_password']
     else:
@@ -172,7 +172,7 @@ def retrieve_config():
     return (temp_offset, altitude, enable_display, enable_adafruit_io, aio_user_name, aio_key, aio_feed_window,
             aio_feed_sequence, aio_household_prefix, aio_location_prefix, aio_package, enable_send_data_to_homemanager,
             enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality,
-            mqtt_broker_name, mqtt_username, mqtt_password, outdoor_source_type, outdoor_source_id, enable_noise, enable_luftdaten,
+            mqtt_broker_name, mqtt_user_name, mqtt_password, outdoor_source_type, outdoor_source_id, enable_noise, enable_luftdaten,
             enable_luftdaten_noise, disable_luftdaten_sensor_upload, enable_climate_and_gas_logging, enable_particle_sensor,
             enable_eco2_tvoc, gas_daily_r0_calibration_hour, reset_gas_sensor_calibration, incoming_temp_hum_mqtt_topic,
             incoming_temp_hum_mqtt_sensor_name, incoming_barometer_mqtt_topic, incoming_barometer_sensor_id,
@@ -183,7 +183,7 @@ def retrieve_config():
 (temp_offset, altitude, enable_display, enable_adafruit_io, aio_user_name, aio_key, aio_feed_window, aio_feed_sequence,
   aio_household_prefix, aio_location_prefix, aio_package, enable_send_data_to_homemanager,
   enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality, mqtt_broker_name,
-  mqtt_username, mqtt_password, outdoor_source_type, outdoor_source_id, enable_noise, enable_luftdaten,
+  mqtt_user_name, mqtt_password, outdoor_source_type, outdoor_source_id, enable_noise, enable_luftdaten,
   enable_luftdaten_noise, disable_luftdaten_sensor_upload, enable_climate_and_gas_logging,  enable_particle_sensor, enable_eco2_tvoc,
   gas_daily_r0_calibration_hour, reset_gas_sensor_calibration, incoming_temp_hum_mqtt_topic, incoming_temp_hum_mqtt_sensor_name,
   incoming_barometer_mqtt_topic, incoming_barometer_sensor_id, indoor_outdoor_function, mqtt_client_name,
@@ -1887,8 +1887,8 @@ if enable_send_data_to_homemanager or enable_receive_data_from_homemanager or (e
     client = mqtt.Client(mqtt_client_name)
     client.on_connect = on_connect
     client.on_message = on_message
-    if mqtt_username and mqtt_password:
-        client.username_pw_set(mqtt_username, mqtt_password)
+    if mqtt_user_name and mqtt_password:
+        client.username_pw_set(mqtt_user_name, mqtt_password)
     try:
         client.connect(mqtt_broker_name, 1883, 60)
     except:
