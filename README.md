@@ -15,7 +15,7 @@ In addition to improving temperature and humidity measurements, testing and regr
 
 Accuracy of the air pressure readings is delivered through altitude compensation. The altitude is set by the ‘altitude’ parameter in the [config.json](https://github.com/roscoe81/enviro-monitor/blob/master/Config/config.json) file.
 
-## Note: Even though the accuracy of the Enviro Monitor has been improved, the readings are still not thoroughly and accurately calibrated. The calibration exercise has been undertaken for temperatures between 0 and 40 degrees Celsius, so it's unlikely to provide effective useful outside of that range. They readings should therefore not be relied upon for critical applications.
+## Note: Even though the accuracy of the Enviro Monitor has been improved, the readings are still not thoroughly and accurately calibrated. The calibration exercise has been undertaken for temperatures between 0 and 40 degrees Celsius, so it's unlikely to provide effective readings outside of that range. They readings should therefore not be relied upon for critical applications.
 
 
 The case is not water resistant and needs to be sheltered from the elements. The [base](https://github.com/roscoe81/enviro-monitor/blob/master/3DP_Files/Northcliff_EM_Base_01.stl) is only required if the unit is not mounted on a vertical surface. There is a variant of the [case](https://github.com/roscoe81/enviro-monitor/blob/master/3DP_Files/Northcliff_EM_Case_Indoor_Plus.stl) and [cover](https://github.com/roscoe81/enviro-monitor/blob/master/3DP_Files/Northcliff_EM_Cover_Indoor_Plus.stl) for the Indoor Plus model that monitors eCO2 and TVOC levels. This variant of the case provides additional space and airflow for the SGP30 sensor.
