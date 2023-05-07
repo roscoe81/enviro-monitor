@@ -38,7 +38,7 @@ except ImportError:
     from smbus import SMBus
 import logging
 
-monitor_version = "6.11 - Gen"
+monitor_version = "6.13 - Gen"
 
 logging.basicConfig(
     format='%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s',
@@ -302,15 +302,15 @@ def read_climate_gas_values(luft_values, mqtt_values, own_data, maxi_temp, mini_
     raw_barometer = bme280.get_pressure()
     if use_external_barometer == False:
         print("Internal Barometer")
-        own_data["Bar"][1] = round(raw_barometer * barometer_altitude_comp_factor(altitude, own_data["Temp"][1]), 1)
+        own_data["Bar"][1] = round(raw_barometer * barometer_altitude_comp_factor(altitude, own_data["Temp"][1]), 2)
         own_disp_values["Bar"] = own_disp_values["Bar"][1:] + [[own_data["Bar"][1], 1]]
         mqtt_values["Bar"][0] = own_data["Bar"][1]
         luft_values["pressure"] = "{:.2f}".format(raw_barometer * 100) # Send raw air pressure to Lufdaten,
         # since it does its own altitude air pressure compensation
-        print("Raw Bar:", round(raw_barometer, 1), "Comp Bar:", own_data["Bar"][1])
+        print("Raw Bar:", round(raw_barometer, 2), "Comp Bar:", own_data["Bar"][1])
     else:
         print("External Barometer")
-        own_data["Bar"][1] = round(float(es.barometer), 1)
+        own_data["Bar"][1] = round(float(es.barometer), 2)
         own_disp_values["Bar"] = own_disp_values["Bar"][1:] + [[own_data["Bar"][1], 1]]
         mqtt_values["Bar"][0] = own_data["Bar"][1]
         # Remove altitude compensation from external barometer because Lufdaten does its own altitude air pressure
