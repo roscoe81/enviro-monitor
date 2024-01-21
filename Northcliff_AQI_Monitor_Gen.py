@@ -38,7 +38,7 @@ except ImportError:
     from smbus import SMBus
 import logging
 
-monitor_version = "6.13 - Gen"
+monitor_version = "7.2 - Gen"
 
 logging.basicConfig(
     format='%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s',
@@ -272,6 +272,9 @@ def read_climate_gas_values(luft_values, mqtt_values, own_data, maxi_temp, mini_
         own_data["Temp"][1] = float(luft_values["temperature"])
         luft_values["humidity"] = es.humidity
         own_data["Hum"][1] = float(luft_values["humidity"])
+    own_data["Dew"][1] = round(calculate_dewpoint(own_data["Temp"][1], own_data["Hum"][1]),1)
+    own_disp_values["Dew"] = own_disp_values["Dew"][1:] + [[own_data["Dew"][1], 1]]
+    mqtt_values["Dew"]  = own_data["Dew"][1]
     own_disp_values["Temp"] = own_disp_values["Temp"][1:] + [[own_data["Temp"][1], 1]]
     mqtt_values["Temp"] = own_data["Temp"][1]
     own_disp_values["Hum"] = own_disp_values["Hum"][1:] + [[own_data["Hum"][1], 1]]
@@ -418,7 +421,11 @@ def adjusted_humidity():
     #comp_hum = comp_hum_slope * raw_hum + comp_hum_intercept
     comp_hum = comp_hum_quad_a * math.pow(raw_hum, 2) + comp_hum_quad_b * raw_hum + comp_hum_quad_c
     return raw_hum, min(100, comp_hum)
-    
+
+def calculate_dewpoint(dew_temp, dew_hum):
+    dewpoint = (237.7 * (math.log(dew_hum/100)+17.271*dew_temp/(237.7+dew_temp))/(17.271 - math.log(dew_hum/100) - 17.271*dew_temp/(237.7 + dew_temp)))
+    return dewpoint
+
 def log_climate_and_gas(run_time, own_data, raw_red_rs, raw_oxi_rs, raw_nh3_rs, raw_temp, comp_temp, comp_hum,
                         raw_hum, use_external_temp_hum, use_external_barometer, raw_barometer):
     # Used to log climate and gas data to create compensation algorithms
@@ -742,6 +749,7 @@ def capture_outdoor_data(parsed_json):
 # Displays graphed data and text on the 0.96" LCD
 def display_graphed_data(location, disp_values, variable, data, WIDTH):
     # Scale the received disp_values for the variable between 0 and 1
+    #print ("Display Values", disp_values)
     received_disp_values = [disp_values[variable][v][0]*disp_values[variable][v][1]
                             for v in range(len(disp_values[variable]))]
     graph_range = [(v - min(received_disp_values)) / (max(received_disp_values) - min(received_disp_values))
@@ -1320,6 +1328,7 @@ def overlay_text(img, position, text, font, align_right=False, rectangle=False):
     else:
         draw.text(position, text, font=font, fill=(255, 255, 255))
     return img
+
 def describe_humidity(humidity):
     """Convert relative humidity into wet/good/dry description."""
     if 30 < humidity <= 75:
@@ -1329,6 +1338,17 @@ def describe_humidity(humidity):
     else:
         description = "dry"
     return description
+
+def describe_dewpoint(dp):
+    """Convert dewpoint reading to comfort level"""
+    if dp <= 10:
+        description = "dry"
+    elif dp > 10 and dp <= 20:
+        description = "good"
+    else:
+        description = "wet"
+    return description
+
 def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, maxi_temp, mini_temp, air_quality_data,
                              air_quality_data_no_gas, icon_air_quality_levels, gas_sensors_warm, noise_level, noise_max):
     progress, period, day, local_dt = sun_moon_time(city_name, time_zone)
@@ -1358,11 +1378,14 @@ def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, max
     corr_humidity = data["Hum"][1]
     humidity_string = f"{corr_humidity:.1f}%"
     img = overlay_text(img, (73, 48), humidity_string, font_smm, align_right=True)
+    # Dewpoint
     spacing = font_smm.getsize(humidity_string)[1] + 1
-    humidity_desc = describe_humidity(corr_humidity).upper()
-    img = overlay_text(img, (68, 48 + spacing), humidity_desc, font_sm, align_right=True, rectangle=True)
-    humidity_icon = Image.open(path + "/icons/humidity-" + humidity_desc.lower() + ".png")
-    img.paste(humidity_icon, (margin, 53), mask=humidity_icon)                
+    dewpoint_data = data["Dew"][1]
+    dewpoint_string = f"{dewpoint_data:.1f}°C"
+    comfort_desc = describe_dewpoint(data["Dew"][1]).upper()
+    img = overlay_text(img, (68, 48 + spacing), dewpoint_string, font_sm, align_right=True, rectangle=True)
+    comfort_icon = Image.open(path + "/icons/humidity-" + comfort_desc.lower() + ".png")
+    img.paste(comfort_icon, (margin, 53), mask=comfort_icon)
     # AQI
     aqi_string = f"{max_aqi[1]}: {max_aqi[0]}"
     img = overlay_text(img, (WIDTH - margin, 18), aqi_string, font_smm, align_right=True)
@@ -1402,11 +1425,10 @@ def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, max
     disp.display(img)
     
 # Send Adafruit IO Feed Data
-def update_aio(mqtt_values, forecast, aio_format, aio_forecast_text_format, aio_forecast_icon_format,
+def update_aio(mqtt_values, forecast, aio_format, aio_forecast_text_format,
                aio_air_quality_level_format, aio_air_quality_text_format, own_data, icon_air_quality_levels,
-               aio_forecast, aio_package, gas_sensors_warm, air_quality_data, air_quality_data_no_gas,
-               previous_aio_air_quality_level, previous_aio_air_quality_text, previous_aio_forecast_text,
-               previous_aio_forecast, aio_noise_values):
+               aio_package, gas_sensors_warm, air_quality_data, air_quality_data_no_gas,
+               aio_noise_values, aio_version_text_format, version_text):
     aio_resp = False # Set to True when there is at least one successful aio feed response
     aio_json = {}
     aio_path = '/feeds/'
@@ -1422,40 +1444,32 @@ def update_aio(mqtt_values, forecast, aio_format, aio_forecast_text_format, aio_
     combined_air_quality_level = max_aqi[1]
     combined_air_quality_text = icon_air_quality_levels[combined_air_quality_level] + ": " +\
                                 combined_air_quality_level_factor
-    if combined_air_quality_level != previous_aio_air_quality_level: # Only update if it's changed
-        #print('Sending Air Quality Level Feed')
-        aio_json['value'] = combined_air_quality_level
-        feed_resp = send_data_to_aio(aio_air_quality_level_format, combined_air_quality_level) # Used by all aio packages
-        if feed_resp:
-            aio_resp = True
-        previous_aio_air_quality_level = combined_air_quality_level
-    if (aio_package == 'Premium Plus' or aio_package == 'Premium' or aio_package == 'Basic Air' or aio_package == "Premium Noise"\
-        or aio_package == "Premium Plus Noise") and combined_air_quality_text != previous_aio_air_quality_text: # Only update if it's changed
+    #print('Sending Air Quality Level Feed')
+    aio_json['value'] = combined_air_quality_level
+    feed_resp = send_data_to_aio(aio_air_quality_level_format, combined_air_quality_level) # Used by all aio packages
+    if feed_resp:
+        aio_resp = True
+    if (aio_package == 'Premium Plus' or aio_package == 'Premium' or aio_package == 'Basic Air' or aio_package == "Premium Noise" or aio_package == "Premium Plus Noise"):
         #print('Sending Air Quality Text Feed')
         feed_resp = send_data_to_aio(aio_air_quality_text_format, combined_air_quality_text)
         if feed_resp:
             aio_resp = True
-        previous_aio_air_quality_text = combined_air_quality_text
     if not enable_indoor_outdoor_functionality or enable_indoor_outdoor_functionality and\
             indoor_outdoor_function == "Outdoor" or enable_indoor_outdoor_functionality and\
             indoor_outdoor_function == "Indoor" and outdoor_source_type != "Enviro":
-        # If indoor_outdoor_functionality is enabled, only send an updated forecast from the outdoor unit
+        # If indoor_outdoor_functionality is enabled, only send an updated weather forecast from the outdoor unit
         # unless the outdoor source type in not an Enviro Monitor
         aio_forecast_text = forecast.replace("\n", " ")
-        if (aio_package == 'Premium' or aio_package == 'Premium Plus' or aio_package == "Premium Noise" or aio_package == "Premium Plus Noise")\
-                and aio_forecast_text != previous_aio_forecast_text:
+        if (aio_package == 'Premium' or aio_package == 'Premium Plus' or aio_package == "Premium Noise" or aio_package == "Premium Plus Noise"):
             #print('Sending Weather Forecast Text Feed')
             feed_resp = send_data_to_aio(aio_forecast_text_format, aio_forecast_text)
             if feed_resp:
                 aio_resp = True
-            previous_aio_forecast_text = aio_forecast_text
-        if (aio_package == 'Premium' or aio_package == 'Basic Combo' or aio_package == 'Premium Plus' or aio_package == "Premium Noise"\
-            or aio_package == "Premium Plus Noise") and aio_forecast != previous_aio_forecast:
-            #print('Sending Weather Forecast Icon Feed')
-            feed_resp = send_data_to_aio(aio_forecast_icon_format, aio_forecast)
-            if feed_resp:
-                aio_resp = True
-            previous_aio_forecast = aio_forecast
+    if (aio_package == 'Premium' or aio_package == 'Premium Plus' or aio_package == "Premium Noise" or aio_package == "Premium Plus Noise"):
+        #print('Sending Version Text Feed')
+        feed_resp = send_data_to_aio(aio_version_text_format, version_text)
+        if feed_resp:
+            aio_resp = True
     # Send other feeds
     for feed in aio_format: # aio_format varies, based on the relevant aio_package
         if aio_format[feed][1]: # Send the first value of the list if sending humidity or barometer data
@@ -1495,8 +1509,7 @@ def update_aio(mqtt_values, forecast, aio_format, aio_forecast_text_format, aio_
                 feed_resp = send_data_to_aio(aio_format[feed][0], mqtt_values[feed])
                 if feed_resp:
                     aio_resp = True
-    return previous_aio_air_quality_level, previous_aio_air_quality_text, previous_aio_forecast_text,\
-           previous_aio_forecast, aio_resp
+    return aio_resp
 
 
 def capture_external_outdoor_data(outdoor_source_type, outdoor_source_id, outdoor_aio_readings):
@@ -1728,29 +1741,31 @@ if enable_eco2_tvoc: # eCO2 and TVOC added when enabling the SGP30 sensor
                 "Red": ["ppm", 0, [6, 10, 50, 75], 4], "NH3": ["ppm", 0, [1, 2, 10, 15], 5],
                 "CO2": ["ppm", 0, [500, 1000, 1600, 2000], 6], "VOC": ["ppb", 0, [120, 220, 660, 2200], 7],
                 "Temp": ["C", 0, [10,18,25,32], 8], "Hum": ["%", 0, [30,50,75,90], 9],
-                "Bar": ["hPa", 0, [980,990,1030,1040], 10], "Lux": ["Lux", 1, [100,1000,12000,30000], 11]}
+                "Dew": ["C", 0, [10,15,20,24], 10], "Bar": ["hPa", 0, [980,990,1030,1040], 11],
+                "Lux": ["Lux", 1, [100,1000,12000,30000], 12]}
     data_in_display_all_aq =  ["P1", "P2.5", "P10", "Oxi", "Red", "NH3", "CO2", "VOC"]
     # Defines the order in which display modes are chosen
     if enable_noise:
         display_modes = ["Icon Weather", "All Air", "P1", "P2.5", "P10", "Oxi", "Red", "NH3", "CO2", "VOC",
-                     "Forecast", "Temp", "Hum", "Bar", "Lux", "Noise Reading", "Noise Level", "Noise Frequencies", "Status"]
+                     "Forecast", "Temp", "Hum", "Dew", "Bar", "Lux", "Noise Reading", "Noise Level", "Noise Frequencies", "Status"]
     else:
         display_modes = ["Icon Weather", "All Air", "P1", "P2.5", "P10", "Oxi", "Red", "NH3", "CO2", "VOC",
-                     "Forecast", "Temp", "Hum", "Bar", "Lux", "Status"]
+                     "Forecast", "Temp", "Hum", "Dew", "Bar", "Lux", "Status"]
 else:
     own_data = {"P1": ["ug/m3", 0, [6,17,27,35], 0], "P2.5": ["ug/m3", 0, [11,35,53,70], 1],
                 "P10": ["ug/m3", 0, [16,50,75,100], 2], "Oxi": ["ppm", 0, [0.2, 0.4, 0.8, 1], 3],
                 "Red": ["ppm", 0, [6, 10, 50, 75], 4], "NH3": ["ppm", 0, [1, 2, 10, 15], 5],
                 "Temp": ["C", 0, [10,18,25,32], 6], "Hum": ["%", 0, [30,50,75,90], 7],
-                "Bar": ["hPa", 0, [980,990,1030,1040], 8], "Lux": ["Lux", 1, [100,1000,12000,30000], 9]}
+                "Dew": ["C", 0, [10,15,20,24], 8], "Bar": ["hPa", 0, [980,990,1030,1040], 9],
+                "Lux": ["Lux", 1, [100,1000,12000,30000], 10]}
     data_in_display_all_aq =  ["P1", "P2.5", "P10", "Oxi", "Red", "NH3"]
     # Defines the order in which display modes are chosen
     if enable_noise:
         display_modes = ["Icon Weather", "All Air", "P1", "P2.5", "P10", "Oxi", "Red", "NH3", "Forecast", "Temp", "Hum",
-                     "Bar", "Lux", "Noise Reading", "Noise Level", "Noise Frequencies", "Status"]
+                     "Dew", "Bar", "Lux", "Noise Reading", "Noise Level", "Noise Frequencies", "Status"]
     else:
         display_modes = ["Icon Weather", "All Air", "P1", "P2.5", "P10", "Oxi", "Red", "NH3", "CO2", "VOC",
-                     "Forecast", "Temp", "Hum", "Bar", "Lux", "Status"]
+                     "Forecast", "Temp", "Hum", "Dew", "Bar", "Lux", "Status"]
 
 # Set up display graph data
 own_disp_values = {}
@@ -1765,13 +1780,15 @@ if enable_indoor_outdoor_functionality and indoor_outdoor_function == 'Indoor': 
                         "Red": ["ppm", 0, [6, 10, 50, 75], 4], "NH3": ["ppm", 0, [1, 2, 10, 15], 5],
                         "CO2": ["ppm", 0, [500, 1000, 1600, 2000], 6], "VOC": ["ppb", 0, [120, 220, 660, 2200], 7],
                         "Temp": ["C", 0, [10,18,25,32], 8], "Hum": ["%", 0, [30,50,75,90], 9],
-                        "Bar": ["hPa", 0, [980,990,1030,1040], 10], "Lux": ["Lux", 1, [100,1000,12000,30000], 11]}
+                        "Dew": ["C", 0, [10,15,20,24], 10], "Bar": ["hPa", 0, [980,990,1030,1040], 10],
+                        "Lux": ["Lux", 1, [100,1000,12000,30000], 11]}
     else:
         outdoor_data = {"P1": ["ug/m3", 0, [6,17,27,35], 0], "P2.5": ["ug/m3", 0, [11,35,53,70], 1],
                         "P10": ["ug/m3", 0, [16,50,75,100], 2], "Oxi": ["ppm", 0, [0.2, 0.4, 0.8, 1], 3],
                         "Red": ["ppm", 0, [6, 10, 50, 75], 4], "NH3": ["ppm", 0, [1, 2, 10, 15], 5],
                         "Temp": ["C", 0, [10,18,25,32], 6], "Hum": ["%", 0, [30,50,75,90], 7],
-                        "Bar": ["hPa", 0, [980,990,1030,1040], 8], "Lux": ["Lux", 1, [100,1000,12000,30000], 9]}
+                        "Dew": ["C", 0, [10,15,20,24], 10], "Bar": ["hPa", 0, [980,990,1030,1040], 8],
+                        "Lux": ["Lux", 1, [100,1000,12000,30000], 9]}
     # For graphing outdoor display data
     outdoor_disp_values = {}
     for v in outdoor_data:
@@ -1899,7 +1916,7 @@ if enable_adafruit_io:
     # Set up Adafruit IO. aio_format{'measurement':[feed, is value in list format?]}
     # Barometer and Weather Forecast Feeds only have one feed per household (i.e. no location prefix)
     # Six aio_packages: Basic Air (Air Quality Level, Air Quality Text, PM1,  PM2.5, PM10), Basic Combo
-    # (Air Quality Level, Weather Forecast Icon, Temp, Hum, Bar Feeds), Premium (All Feeds except Noise, eCO2 and TVOC)
+    # (Air Quality Level, Temp, Hum, Dewpoint, Bar Feeds), Premium (All Feeds except Noise, eCO2 and TVOC)
     # Premium Plus (All Feeds except Noise), Premium Noise (All Feeds eCO2 and TVOC)
     # Premium Plus Noise(All Feeds)
     print('Setting up', aio_package, 'Adafruit IO')
@@ -1907,52 +1924,47 @@ if enable_adafruit_io:
     aio_feed_prefix = aio_household_prefix + '-' + aio_location_prefix
     aio_format = {}
     aio_forecast_text_format = None
-    aio_forecast_icon_format = None
+    #aio_forecast_icon_format = None
     aio_air_quality_level_format = None
     aio_air_quality_text_format = None
-    previous_aio_air_quality_level = None
-    previous_aio_air_quality_text = None
-    previous_aio_forecast_text = None
-    previous_aio_forecast = None
     if aio_package == "Premium":
         aio_format = {'Temp': [aio_feed_prefix + "-temperature", False], 'Hum': [aio_feed_prefix + "-humidity", True],
-                      'Bar': [aio_household_prefix + "-barometer", True], 'Lux': [aio_feed_prefix + "-lux", False],
+                      'Dew': [aio_feed_prefix + "-dewpoint", False], 'Bar': [aio_household_prefix + "-barometer", True], 'Lux': [aio_feed_prefix + "-lux", False],
                       'P1': [aio_feed_prefix + "-pm1", False],'P2.5': [aio_feed_prefix + "-pm2-dot-5", False],
                       'P10': [aio_feed_prefix + "-pm10", False], 'Red': [aio_feed_prefix + "-reducing", False],
                       'Oxi': [aio_feed_prefix + "-oxidising", False], 'NH3': [aio_feed_prefix + "-ammonia", False]}
         aio_forecast_text_format = aio_household_prefix + "-weather-forecast-text"
-        aio_forecast_icon_format = aio_household_prefix + "-weather-forecast-icon"
+        #aio_forecast_icon_format = aio_household_prefix + "-weather-forecast-icon"
         aio_air_quality_level_format = aio_feed_prefix + "-air-quality-level"
         aio_air_quality_text_format = aio_feed_prefix + "-air-quality-text"
         aio_version_text_format = aio_feed_prefix + "-version"
     elif aio_package == "Premium Noise" and enable_noise:
         aio_format = {'Temp': [aio_feed_prefix + "-temperature", False], 'Hum': [aio_feed_prefix + "-humidity", True],
-                      'Bar': [aio_household_prefix + "-barometer", True], 'Lux': [aio_feed_prefix + "-lux", False],
+                      'Dew': [aio_feed_prefix + "-dewpoint", False], 'Bar': [aio_household_prefix + "-barometer", True], 'Lux': [aio_feed_prefix + "-lux", False],
                       'P1': [aio_feed_prefix + "-pm1", False],'P2.5': [aio_feed_prefix + "-pm2-dot-5", False],
                       'P10': [aio_feed_prefix + "-pm10", False], 'Red': [aio_feed_prefix + "-reducing", False],
                       'Oxi': [aio_feed_prefix + "-oxidising", False], 'NH3': [aio_feed_prefix + "-ammonia", False],
                       'Mean Noise': [aio_feed_prefix + "-mean-noise", False], 'Max Noise': [aio_feed_prefix + "-max-noise", False],
                       'Min Noise': [aio_feed_prefix + "-min-noise", False]}
         aio_forecast_text_format = aio_household_prefix + "-weather-forecast-text"
-        aio_forecast_icon_format = aio_household_prefix + "-weather-forecast-icon"
         aio_air_quality_level_format = aio_feed_prefix + "-air-quality-level"
         aio_air_quality_text_format = aio_feed_prefix + "-air-quality-text"
         aio_version_text_format = aio_feed_prefix + "-version"
     elif aio_package == "Premium Plus" and enable_eco2_tvoc:
         aio_format = {'Temp': [aio_feed_prefix + "-temperature", False], 'Hum': [aio_feed_prefix + "-humidity", True],
-                      'Bar': [aio_household_prefix + "-barometer", True], 'Lux': [aio_feed_prefix + "-lux", False],
+                      'Dew': [aio_feed_prefix + "-dewpoint", False], 'Bar': [aio_household_prefix + "-barometer", True], 'Lux': [aio_feed_prefix + "-lux", False],
                       'P1': [aio_feed_prefix + "-pm1", False],'P2.5': [aio_feed_prefix + "-pm2-dot-5", False],
                       'P10': [aio_feed_prefix + "-pm10", False], 'Red': [aio_feed_prefix + "-reducing", False],
                       'Oxi': [aio_feed_prefix + "-oxidising", False], 'NH3': [aio_feed_prefix + "-ammonia", False],
                       'CO2': [aio_feed_prefix + "-carbon-dioxide", False], 'VOC': [aio_feed_prefix + "-tvoc", False]}
         aio_forecast_text_format = aio_household_prefix + "-weather-forecast-text"
-        aio_forecast_icon_format = aio_household_prefix + "-weather-forecast-icon"
+        #aio_forecast_icon_format = aio_household_prefix + "-weather-forecast-icon"
         aio_air_quality_level_format = aio_feed_prefix + "-air-quality-level"
         aio_air_quality_text_format = aio_feed_prefix + "-air-quality-text"
         aio_version_text_format = aio_feed_prefix + "-version"
     elif aio_package == "Premium Plus Noise" and enable_eco2_tvoc and enable_noise:
         aio_format = {'Temp': [aio_feed_prefix + "-temperature", False], 'Hum': [aio_feed_prefix + "-humidity", True],
-                      'Bar': [aio_household_prefix + "-barometer", True], 'Lux': [aio_feed_prefix + "-lux", False],
+                      'Dew': [aio_feed_prefix + "-dewpoint", False], 'Bar': [aio_household_prefix + "-barometer", True], 'Lux': [aio_feed_prefix + "-lux", False],
                       'P1': [aio_feed_prefix + "-pm1", False],'P2.5': [aio_feed_prefix + "-pm2-dot-5", False],
                       'P10': [aio_feed_prefix + "-pm10", False], 'Red': [aio_feed_prefix + "-reducing", False],
                       'Oxi': [aio_feed_prefix + "-oxidising", False], 'NH3': [aio_feed_prefix + "-ammonia", False],
@@ -1960,7 +1972,7 @@ if enable_adafruit_io:
                       'Mean Noise': [aio_feed_prefix + "-mean-noise", False], 'Max Noise': [aio_feed_prefix + "-max-noise", False],
                       'Min Noise': [aio_feed_prefix + "-min-noise", False]}
         aio_forecast_text_format = aio_household_prefix + "-weather-forecast-text"
-        aio_forecast_icon_format = aio_household_prefix + "-weather-forecast-icon"
+        #aio_forecast_icon_format = aio_household_prefix + "-weather-forecast-icon"
         aio_air_quality_level_format = aio_feed_prefix + "-air-quality-level"
         aio_air_quality_text_format = aio_feed_prefix + "-air-quality-text"
         aio_version_text_format = aio_feed_prefix + "-version"
@@ -1971,8 +1983,8 @@ if enable_adafruit_io:
         aio_air_quality_text_format = aio_feed_prefix + "-air-quality-text"
     elif aio_package == "Basic Combo":
         aio_format = {'Temp': [aio_feed_prefix + "-temperature", False], 'Hum': [aio_feed_prefix + "-humidity", True],
-                      'Bar': [aio_household_prefix + "-barometer", True]}
-        aio_forecast_icon_format = aio_household_prefix + "-weather-forecast-icon"
+                      'Dew': [aio_feed_prefix + "-dewpoint", False], 'Bar': [aio_household_prefix + "-barometer", True]}
+        #aio_forecast_icon_format = aio_household_prefix + "-weather-forecast-icon"
         aio_air_quality_level_format = aio_feed_prefix + "-air-quality-level"
     else:
         print('Invalid Adafruit IO Package')
@@ -2047,7 +2059,7 @@ mqtt_values["Hum"] = [gas_calib_hum, domoticz_hum_map["good"]]
 path = os.path.dirname(os.path.realpath(__file__))
 
 # Set up outdoor aio readings dictionary and requests session
-outdoor_aio_readings = {"Temp": "-temperature", "Hum": "-humidity", "P1": "-pm1", "P10": "-pm10", "P2.5": "-pm2-dot-5",
+outdoor_aio_readings = {"Temp": "-temperature", "Hum": "-humidity", "Dew": "-dewpoint", "P1": "-pm1", "P10": "-pm10", "P2.5": "-pm2-dot-5",
                         "Oxi": "-oxidising", "Red": "-reducing", "NH3": "-ammonia"}
 external_outdoor_data_session = requests.Session()
 
@@ -2153,8 +2165,10 @@ if "Update Time" in persistent_data_log and "Gas Calib Temp List" in persistent_
         reds_r0 = persistent_data_log["Red R0 List"]
         oxis_r0 = persistent_data_log["Oxi R0 List"]
         nh3s_r0 = persistent_data_log["NH3 R0 List"]
-        own_disp_values = persistent_data_log["Own Disp Values"]
-        outdoor_disp_values = persistent_data_log["Outdoor Disp Values"]
+        if "Dew" in persistent_data_log["Own Disp Values"]: # Only capture display values if dewpoint data is present
+            own_disp_values = persistent_data_log["Own Disp Values"]
+        if "Dew" in persistent_data_log["Outdoor Disp Values"]: # Only capture display values if dewpoint data is present
+            outdoor_disp_values = persistent_data_log["Outdoor Disp Values"]
         maxi_temp = persistent_data_log["Maxi Temp"]
         mini_temp = persistent_data_log["Mini Temp"]
         last_page = persistent_data_log["Last Page"]
@@ -2192,7 +2206,7 @@ if reset_gas_sensor_calibration: # Uses reset_gas_sensor_calibration in config t
     gas_sensors_warmup_time = startup_stabilisation_time
 
 if enable_adafruit_io: # Send Version info to Adafruit IO
-    if aio_package == "Premium Plus" or aio_package == "Premium"or aio_package == "Premium Plus Noise" or aio_package == "Premium Noise":
+    if aio_package == "Premium Plus" or aio_package == "Premium" or aio_package == "Premium Plus Noise" or aio_package == "Premium Noise":
         version_text = "Code: " + startup_mender_software_version + " Config: " + startup_mender_config_version
         print("Sending Startup Versions to Adafruit IO", version_text)
         feed_resp = send_data_to_aio(aio_version_text_format, version_text)
@@ -2374,13 +2388,11 @@ try:
                     window_second = int(today.strftime('%S'))
                     if window_minute % 10 == aio_feed_window and window_second // 15 == aio_feed_sequence and\
                             window_minute != previous_aio_update_minute:
-                        previous_aio_air_quality_level, previous_aio_air_quality_text, previous_aio_forecast_text,\
-                        previous_aio_forecast, aio_resp =\
-                            update_aio(mqtt_values, forecast, aio_format, aio_forecast_text_format,
-                                       aio_forecast_icon_format, aio_air_quality_level_format, aio_air_quality_text_format,
-                                       own_data, icon_air_quality_levels, aio_forecast, aio_package, gas_sensors_warm,
-                                       air_quality_data, air_quality_data_no_gas, previous_aio_air_quality_level,
-                                       previous_aio_air_quality_text, previous_aio_forecast_text, previous_aio_forecast, aio_noise_values)
+                        aio_resp = update_aio(mqtt_values, forecast, aio_format, aio_forecast_text_format,
+                                              aio_air_quality_level_format, aio_air_quality_text_format,
+                                              own_data, icon_air_quality_levels, aio_package, gas_sensors_warm,
+                                              air_quality_data, air_quality_data_no_gas, aio_noise_values,
+                                             aio_version_text_format, version_text)
                         aio_noise_values = [] # Reset noise Adafruit IO Noise Levels after each transmission
                         data_sent_to_luftdaten_or_aio = True
                         previous_aio_update_minute = window_minute
@@ -2440,6 +2452,9 @@ try:
                                         outdoor_data["P2.5"][1] = external_outdoor_data["P2.5"]
                                         outdoor_disp_values["P2.5"] = outdoor_disp_values["P2.5"][1:] +\
                                                                       [[outdoor_data["P2.5"][1], 1]]
+                                    outdoor_data["Dew"][1] = round(calculate_dewpoint(outdoor_data["Temp"][1], outdoor_data["Hum"][1]),1)
+                                    outdoor_disp_values["Dew"] = outdoor_disp_values["Dew"][1:] +\
+                                                                 [[outdoor_data["Dew"][1], 1]]
                                     outdoor_data["Bar"][1] = own_data["Bar"][1] # Use internal air pressure data
                                     outdoor_data["P1"][1] = None
                                     outdoor_data["Oxi"][1] = None
