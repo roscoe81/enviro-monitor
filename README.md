@@ -113,7 +113,7 @@ Use alsamixer to set adau7002 capture level to 10
 A [User Guide](https://github.com/roscoe81/enviro-monitor/blob/master/User%20Guide/Northcliff%20Enviro%20Monitor%20User%20Guide-Gen.pdf) provides guidance on the use of the Enviro Monitor.
 
 ## Adafruit IO Support
-Support is provided for streaming weather forecast, air quality, temperature, humidity, air pressure, PM concentration, gas concentration, light levels, noise levels and, with the optional SGP30 sensor, eCO2 and TVOC data to Adafruit IO. This can be enabled and set up as follows:
+Support is provided for streaming weather forecast, air quality, temperature, humidity, dew point, air pressure, PM concentration, gas concentration, light levels, noise levels and, with the optional SGP30 sensor, eCO2 and TVOC data to Adafruit IO. This can be enabled and set up as follows:
 
 ### Config File Settings to Support Adafruit IO
 The following fields in the Enviro Monitor’s config.json file need to be populated to supply data to the Adafruit IO feeds.
