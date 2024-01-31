@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Northcliff Environment Monitor Adafruit IO Feed Setup 8.1 - Gen Add Dewpoint
+#Northcliff Environment Monitor Adafruit IO Feed Setup 8.2 - Gen Fix Weather Forecast Text Feed
 import requests
 import json
 
@@ -20,18 +20,18 @@ aio_key = "<Your Adafruit IO Key>"
 # These dictionaries set up the feed name and key suffixes to support the Enviro readings. Don't change these dictionaries.
 enviro_aio_premium_feeds = {"Temperature": "temperature", "Humidity": "humidity", "Dewpoint": "dewpoint", "Barometer": "barometer", "Lux": "lux", "PM1": "pm1", "PM2.5": "pm2-dot-5",
                     "PM10": "pm10", "Reducing": "reducing", "Oxidising": "oxidising", "Ammonia": "ammonia", "Air Quality Level": "air-quality-level", "Air Quality Text": "air-quality-text",
-                    "Weather Forecast Text": "weather-forecast", "Version": "version"}
+                    "Weather Forecast Text": "weather-forecast-text", "Version": "version"}
 enviro_aio_premium_noise_feeds = {"Temperature": "temperature", "Humidity": "humidity", "Dewpoint": "dewpoint", "Barometer": "barometer", "Lux": "lux", "PM1": "pm1", "PM2.5": "pm2-dot-5",
                     "PM10": "pm10", "Reducing": "reducing", "Oxidising": "oxidising", "Ammonia": "ammonia", "Max Noise": "max-noise", "Min Noise": "min-noise", "Mean Noise": "mean-noise",
                                   "Air Quality Level": "air-quality-level", "Air Quality Text": "air-quality-text",
-                    "Weather Forecast Text": "weather-forecast" , "Version": "version"}
+                    "Weather Forecast Text": "weather-forecast-text" , "Version": "version"}
 enviro_aio_premium_plus_feeds = {"Temperature": "temperature", "Humidity": "humidity", "Dewpoint": "dewpoint", "Barometer": "barometer", "Lux": "lux", "PM1": "pm1", "PM2.5": "pm2-dot-5",
                     "PM10": "pm10", "Carbon Dioxide": "carbon-dioxide", "TVOC": "tvoc", "Reducing": "reducing", "Oxidising": "oxidising", "Ammonia": "ammonia",
-                                 "Air Quality Level": "air-quality-level", "Air Quality Text": "air-quality-text", "Weather Forecast Text": "weather-forecast", "Version": "version"}
+                                 "Air Quality Level": "air-quality-level", "Air Quality Text": "air-quality-text", "Weather Forecast Text": "weather-forecast-text", "Version": "version"}
 enviro_aio_premium_plus_noise_feeds = {"Temperature": "temperature", "Humidity": "humidity", "Dewpoint": "dewpoint", "Barometer": "barometer", "Lux": "lux", "PM1": "pm1", "PM2.5": "pm2-dot-5",
                     "PM10": "pm10", "Carbon Dioxide": "carbon-dioxide", "TVOC": "tvoc", "Reducing": "reducing", "Oxidising": "oxidising", "Ammonia": "ammonia",
                                        "Max Noise": "max-noise", "Min Noise": "min-noise", "Mean Noise": "mean-noise", "Air Quality Level": "air-quality-level",
-                                       "Air Quality Text": "air-quality-text", "Weather Forecast Text": "weather-forecast", "Version": "version"}
+                                       "Air Quality Text": "air-quality-text", "Weather Forecast Text": "weather-forecast-text", "Version": "version"}
 enviro_aio_basic_air_feeds = {"PM1": "pm1", "PM2.5": "pm2-dot-5", "PM10": "pm10", "Air Quality Level": "air-quality-level", "Air Quality Text": "air-quality-text"}
 enviro_aio_basic_combo_feeds = {"Temperature": "temperature", "Humidity": "humidity", "Dewpoint": "dewpoint", "Barometer": "barometer", "Air Quality Level": "air-quality-level"}
 enviro_aio_feeds_map = {'Premium Plus': enviro_aio_premium_plus_feeds, 'Premium Plus Noise': enviro_aio_premium_plus_noise_feeds,'Premium': enviro_aio_premium_feeds, 'Premium Noise': enviro_aio_premium_noise_feeds,
