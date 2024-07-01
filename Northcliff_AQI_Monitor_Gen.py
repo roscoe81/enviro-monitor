@@ -7,7 +7,7 @@ import colorsys
 import math
 import json
 import requests
-import ST7735
+import st7735 as ST7735
 import os
 import time
 from datetime import datetime, timedelta
