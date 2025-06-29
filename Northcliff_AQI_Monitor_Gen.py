@@ -7,7 +7,7 @@ import colorsys
 import math
 import json
 import requests
-import ST7735
+import st7735 as ST7735
 import os
 import time
 from datetime import datetime, timedelta
@@ -512,7 +512,7 @@ def display_startup(message):
     error_message = "{}".format(message)
     img = Image.new('RGB', (WIDTH, HEIGHT), color=(0, 0, 0))
     draw = ImageDraw.Draw(img)
-    size_x, size_y = draw.textsize(message, mediumfont)
+    _, _, size_x, size_y = draw.textbbox((0,0), message, mediumfont)
     x = (WIDTH - size_x) / 2
     y = (HEIGHT / 2) - (size_y / 2)
     draw.rectangle((0, 0, 160, 80), back_colour)
@@ -526,7 +526,7 @@ def display_error(message):
     error_message = "System Error\n{}".format(message)
     img = Image.new('RGB', (WIDTH, HEIGHT), color=(0, 0, 0))
     draw = ImageDraw.Draw(img)
-    size_x, size_y = draw.textsize(message, mediumfont)
+    _, _, size_x, size_y = draw.textbbox((0,0), message, mediumfont)
     x = (WIDTH - size_x) / 2
     y = (HEIGHT / 2) - (size_y / 2)
     draw.rectangle((0, 0, 160, 80), back_colour)
@@ -547,7 +547,7 @@ def disabled_display(gas_sensors_warm, air_quality_data, air_quality_data_no_gas
         message = "{}".format(id)
     img = Image.new('RGB', (WIDTH, HEIGHT), color=(0, 0, 0))
     draw = ImageDraw.Draw(img)
-    size_x, size_y = draw.textsize(message, font_smm)
+    _, _, size_x, size_y = draw.textbbox((0,0), message, font_smm)
     x = (WIDTH - size_x) / 2
     y = (HEIGHT / 2) - (size_y / 2)
     draw.rectangle((0, 0, 160, 80), back_colour)
@@ -566,7 +566,7 @@ def display_status(enable_adafruit_io, aio_user_name, aio_household_prefix):
         message = "Northcliff\nEnviro Monitor\n{}\nwifi: {}".format(id, wifi_status)
     img = Image.new('RGB', (WIDTH, HEIGHT), color=(0, 0, 0))
     draw = ImageDraw.Draw(img)
-    size_x, size_y = draw.textsize(message, font_smm)
+    _, _, size_x, size_y = draw.textbbox((0,0), message, font_smm)
     x = (WIDTH - size_x) / 2
     y = (HEIGHT / 2) - (size_y / 2)
     draw.rectangle((0, 0, 160, 80), back_colour)
@@ -803,7 +803,7 @@ def display_forecast(valid_barometer_history, forecast, barometer_available_time
             message = "WEATHER FORECAST\nPreparing Summary\nPlease Wait..."
     img = Image.new('RGB', (WIDTH, HEIGHT), color=(0, 0, 0))
     draw = ImageDraw.Draw(img)
-    size_x, size_y = draw.textsize(message, mediumfont)
+    _, _, size_x, size_y = draw.textbbox((0,0), message, mediumfont)
     x = (WIDTH - size_x) / 2
     y = (HEIGHT / 2) - (size_y / 2)
     draw.rectangle((0, 0, 160, 80), back_colour)
@@ -1309,7 +1309,7 @@ def draw_background(progress, period, day, icon_aqi_level):
     return composite
 def overlay_text(img, position, text, font, align_right=False, rectangle=False):
     draw = ImageDraw.Draw(img)
-    w, h = font.getsize(text)
+    _, _, w, h = font.getbbox(text)
     if align_right:
         x, y = position
         x -= w
@@ -1363,7 +1363,7 @@ def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, max
     img = overlay_text(img, (WIDTH - margin, 0 + margin), date_string, font_smm, align_right=True)
     temp_string = f"{data['Temp'][1]:.1f}°C"
     img = overlay_text(img, (78, 18), temp_string, font_smm, align_right=True)
-    spacing = font_smm.getsize(temp_string)[1] + 1
+    spacing = font_smm.getbbox(temp_string)[3] + 1
     if mini_temp is not None and maxi_temp is not None:
         if maxi_temp >= 0:
             range_string = f"{round(mini_temp, 0):.0f} to {round(maxi_temp, 0):.0f}"
@@ -1379,7 +1379,7 @@ def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, max
     humidity_string = f"{corr_humidity:.1f}%"
     img = overlay_text(img, (73, 48), humidity_string, font_smm, align_right=True)
     # Dewpoint
-    spacing = font_smm.getsize(humidity_string)[1] + 1
+    spacing = font_smm.getbbox(humidity_string)[3] + 1
     dewpoint_data = data["Dew"][1]
     dewpoint_string = f"{dewpoint_data:.1f}°C"
     comfort_desc = describe_dewpoint(data["Dew"][1]).upper()
@@ -1389,7 +1389,7 @@ def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, max
     # AQI
     aqi_string = f"{max_aqi[1]}: {max_aqi[0]}"
     img = overlay_text(img, (WIDTH - margin, 18), aqi_string, font_smm, align_right=True)
-    spacing = font_smm.getsize(aqi_string)[1] + 1
+    spacing = font_smm.getbbox(aqi_string)[3] + 1
     aqi_desc = icon_air_quality_levels[max_aqi[1]].upper()
     img = overlay_text(img, (WIDTH - margin - 1, 18 + spacing), aqi_desc, font_sm, align_right=True, rectangle=True)
     aqi_icon = Image.open(path + "/icons/aqi.png")
@@ -1399,7 +1399,7 @@ def display_icon_weather_aqi(location, data, barometer_trend, icon_forecast, max
     pressure_string = f"{int(pressure)} {barometer_trend}"
     img = overlay_text(img, (WIDTH - margin, 48), pressure_string, font_smm, align_right=True)
     pressure_desc = icon_forecast.upper()
-    spacing = font_smm.getsize(pressure_string)[1] + 1
+    spacing = font_smm.getbbox(pressure_string)[3] + 1
     img = overlay_text(img, (WIDTH - margin - 1, 48 + spacing), pressure_desc, font_sm, align_right=True, rectangle=True)
     pressure_icon = Image.open(path + "/icons/weather-" + pressure_desc.lower() +  ".png")
     img.paste(pressure_icon, (80, 53), mask=pressure_icon)
