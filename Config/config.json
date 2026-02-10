@@ -37,4 +37,6 @@
 "indoor_mqtt_topic": "<>",
 "city_name": "Sydney",
 "time_zone": "Australia/Sydney",
-"custom_locations": ["Townsville, Australia, Queensland, -19.26639, 146.80569", "Thredbo, Australia, Sydney, -36.4999989, 148.2999988", "Romsey, Australia, Victoria, -37.3581082, 144.7365582"]}
+"custom_locations": ["Townsville, Australia, Queensland, -19.26639, 146.80569", "Thredbo, Australia, Sydney, -36.4999989, 148.2999988", "Romsey, Australia, Victoria, -37.3581082, 144.7365582"],
+"serial_port": "/dev/ttyS0"
+}
