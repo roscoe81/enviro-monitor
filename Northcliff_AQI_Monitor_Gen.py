@@ -77,7 +77,7 @@ disp.begin()
 
 def retrieve_config():
     try:
-        with open('<Your config.json file location>', 'r') as f:
+        with open('./Config/config.json', 'r') as f:
             parsed_config_parameters = json.loads(f.read())
             print('Retrieved Config', parsed_config_parameters)
     except IOError:
