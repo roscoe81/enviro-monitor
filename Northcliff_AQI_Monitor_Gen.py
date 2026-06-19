@@ -2,11 +2,12 @@
 #Northcliff Environment Monitor
 # Requires Home Manager >=8.54 with Enviro Monitor timeout
 
+import asyncio
 import paho.mqtt.client as mqtt
 import colorsys
 import math
 import json
-import requests
+import httpx
 import st7735 as ST7735
 import os
 import time
@@ -32,13 +33,9 @@ from bme280 import BME280
 from pms5003 import PMS5003, ReadTimeoutError, ChecksumMismatchError
 from subprocess import check_output
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
-try:
-    from smbus2 import SMBus
-except ImportError:
-    from smbus import SMBus
 import logging
 
-monitor_version = "7.2 - Gen"
+monitor_version = 8.0 - Gen"
 
 logging.basicConfig(
     format='%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s',
@@ -169,6 +166,10 @@ def retrieve_config():
     city_name = parsed_config_parameters['city_name']
     time_zone = parsed_config_parameters['time_zone']
     custom_locations = parsed_config_parameters['custom_locations']
+    if 'serial_port' in parsed_config_parameters:
+        serial_port = parsed_config_parameters['serial_port']
+    else:
+        serial_port = None
     return (temp_offset, altitude, enable_display, enable_adafruit_io, aio_user_name, aio_key, aio_feed_window,
             aio_feed_sequence, aio_household_prefix, aio_location_prefix, aio_package, enable_send_data_to_homemanager,
             enable_receive_data_from_homemanager, enable_indoor_outdoor_functionality,
@@ -177,7 +178,7 @@ def retrieve_config():
             enable_eco2_tvoc, gas_daily_r0_calibration_hour, reset_gas_sensor_calibration, incoming_temp_hum_mqtt_topic,
             incoming_temp_hum_mqtt_sensor_name, incoming_barometer_mqtt_topic, incoming_barometer_sensor_id,
             indoor_outdoor_function, mqtt_client_name, outdoor_mqtt_topic, indoor_mqtt_topic, city_name, time_zone,
-            custom_locations)
+            custom_locations, serial_port)
 
 # Config Setup
 (temp_offset, altitude, enable_display, enable_adafruit_io, aio_user_name, aio_key, aio_feed_window, aio_feed_sequence,
@@ -187,7 +188,7 @@ def retrieve_config():
   enable_luftdaten_noise, disable_luftdaten_sensor_upload, enable_climate_and_gas_logging,  enable_particle_sensor, enable_eco2_tvoc,
   gas_daily_r0_calibration_hour, reset_gas_sensor_calibration, incoming_temp_hum_mqtt_topic, incoming_temp_hum_mqtt_sensor_name,
   incoming_barometer_mqtt_topic, incoming_barometer_sensor_id, indoor_outdoor_function, mqtt_client_name,
-  outdoor_mqtt_topic, indoor_mqtt_topic, city_name, time_zone, custom_locations) = retrieve_config()
+  outdoor_mqtt_topic, indoor_mqtt_topic, city_name, time_zone, custom_locations, serial_port) = retrieve_config()
 
 # Add to city database
 db = database()
@@ -195,7 +196,7 @@ add_locations(custom_locations, db)
 
 if enable_particle_sensor:
     # Create a PMS5003 instance
-    pms5003 = PMS5003()
+    pms5003 = PMS5003(device=serial_port) if serial_port else PMS5003()
     time.sleep(1)
 
 if enable_noise:
@@ -205,6 +206,93 @@ if enable_noise:
     from scipy.signal import zpk2tf, zpk2sos, freqs, sosfilt
     from waveform_analysis.weighting_filters._filter_design import _zpkbilinear
                
+async def _async_luft_post(client, pin, sensor_id, payload, label):
+    try:
+        resp = await client.post(
+            "https://api.luftdaten.info/v1/push-sensor-data/",
+            json=payload,
+            headers={"X-PIN": pin, "X-Sensor": sensor_id, "cache-control": "no-cache"}
+        )
+        return resp.status_code < 300
+    except httpx.ConnectError as e:
+        print('Luftdaten', label, 'Connection Error', e)
+    except httpx.TimeoutException as e:
+        print('Luftdaten', label, 'Timeout Error', e)
+    except httpx.RequestError as e:
+        print('Luftdaten', label, 'Request Error', e)
+    return False
+
+
+async def _async_aio_post(client, feed_key, data):
+    try:
+        response = await client.post(
+            aio_url + '/feeds/' + feed_key + '/data',
+            headers={'X-AIO-Key': aio_key},
+            json={"value": data}
+        )
+        if response.status_code == 429:
+            print('aio Throttling Error')
+            return False
+        if response.status_code >= 400:
+            print('aio Response Error:', response.status_code)
+            return False
+        return True
+    except httpx.ConnectError as e:
+        print('aio Connection Error', e)
+    except httpx.TimeoutException as e:
+        print('aio Timeout Error', e)
+    except httpx.RequestError as e:
+        print('aio Request Error', e)
+    return False
+
+
+async def _async_aio_outdoor_get(client, feed, outdoor_source_id, feed_suffix):
+    url = 'https://io.adafruit.com/api/v2/{}/feeds/{}-outdoor{}/data/last'.format(
+        outdoor_source_id["User Name"], outdoor_source_id["Household Name"], feed_suffix)
+    try:
+        resp = await client.get(url, headers={'X-AIO-Key': outdoor_source_id["Key"]})
+        data = resp.json()
+        if "value" in data:
+            return {feed: float(data["value"])}
+    except httpx.ConnectError as e:
+        print('Outdoor aio Connection Error', e)
+    except httpx.TimeoutException as e:
+        print('Outdoor aio Timeout Error', e)
+    except httpx.RequestError as e:
+        print('Outdoor aio Request Error', e)
+    except ValueError as e:
+        print('Outdoor aio Value Error', e)
+    return {}
+
+
+async def _async_luft_outdoor_get(client, url_type, url):
+    result = {}
+    try:
+        resp = await client.get(url)
+        data = resp.json()
+        if "sensordatavalues" in data[0]:
+            for item in data[0]["sensordatavalues"]:
+                if url_type == "Climate":
+                    if item["value_type"] == "temperature":
+                        result["Temp"] = float(item["value"])
+                    elif item["value_type"] == "humidity":
+                        result["Hum"] = float(item["value"])
+                elif url_type == "PM":
+                    if item["value_type"] == "P2":
+                        result["P2.5"] = float(item["value"])
+                    elif item["value_type"] == "P1":
+                        result["P10"] = float(item["value"])
+    except httpx.ConnectError as e:
+        print('Outdoor Luftdaten Connection Error', e)
+    except httpx.TimeoutException as e:
+        print('Outdoor Luftdaten Timeout Error', e)
+    except httpx.RequestError as e:
+        print('Outdoor Luftdaten Request Error', e)
+    except ValueError as e:
+        print('Outdoor Luftdaten Value Error', e)
+    return result
+
+
 def read_pm_values(luft_values, mqtt_values, own_data, own_disp_values):
     if enable_particle_sensor:
         try:
@@ -574,153 +662,74 @@ def display_status(enable_adafruit_io, aio_user_name, aio_household_prefix):
     disp.display(img)
     
 def send_data_to_aio(feed_key, data):
-    aio_json = {"value": data}
     resp_error = False
-    reason = ''
     response = ''
     try:
-        response = requests.post(aio_url + '/feeds/' + feed_key + '/data',
-                                 headers={'X-AIO-Key': aio_key,
-                                          'Content-Type': 'application/json'},
-                                 data=json.dumps(aio_json), timeout=5)
+        response = httpx.post(aio_url + '/feeds/' + feed_key + '/data',
+                              headers={'X-AIO-Key': aio_key},
+                              json={"value": data},
+                              timeout=5)
         status_code = response.status_code
-    except requests.exceptions.ConnectionError as e:
+    except httpx.ConnectError as e:
         resp_error = True
-        reason = 'aio Connection Error'
         print('aio Connection Error', e)
-    except requests.exceptions.Timeout as e:
+    except httpx.TimeoutException as e:
         resp_error = True
-        reason = 'aio Timeout Error'
         print('aio Timeout Error', e)
-    except requests.exceptions.HTTPError as e:
+    except httpx.RequestError as e:
         resp_error = True
-        reason = 'aio HTTP Error'
-        print('aio HTTP Error', e)     
-    except requests.exceptions.RequestException as e:
-        resp_error = True
-        reason = 'aio Request Error'
         print('aio Request Error', e)
     else:
         if status_code == 429:
             resp_error = True
-            reason = 'Throttling Error'
             print('aio Throttling Error')
         elif status_code >= 400:
             resp_error = True
-            reason = 'Response Error: ' + str(response.status_code)
-            print('aio ', reason)
+            print('aio Response Error:', response.status_code)
     return not resp_error
 
 def send_to_luftdaten(luft_values, id, enable_particle_sensor, enable_noise, luft_noise_values, disable_luftdaten_sensor_upload):
     print("Sending Data to Luftdaten")
-    pm_send_attempt = False
-    climate_send_attempt = False
-    noise_send_attempt = False
-    all_responses_ok = True
-    resp_1_exception = False
-    resp_2_exception = False
-    resp_3_exception = False
+    requests_to_make = []
 
     if enable_particle_sensor and disable_luftdaten_sensor_upload != 'PM':
-        pm_values = dict(i for i in luft_values.items() if i[0].startswith("P"))
-        pm_send_attempt = True
-        try:
-            resp_1 = requests.post("https://api.luftdaten.info/v1/push-sensor-data/",
-                     json={
-                         "software_version": "northclff_enviro_monitor " + monitor_version,
-                         "sensordatavalues": [{"value_type": key, "value": val} for
-                                              key, val in pm_values.items()]
-                     },
-                     headers={
-                         "X-PIN":   "1",
-                         "X-Sensor": id,
-                         "Content-Type": "application/json",
-                         "cache-control": "no-cache"
-                     },
-                    timeout=5
-            )
-        except requests.exceptions.ConnectionError as e:
-            resp_1_exception = True
-            print('Luftdaten PM Connection Error', e)
-        except requests.exceptions.Timeout as e:
-            resp_1_exception = True
-            print('Luftdaten PM Timeout Error', e)
-        except requests.exceptions.RequestException as e:
-            resp_1_exception = True
-            print('Luftdaten PM Request Error', e)
+        pm_values = {k: v for k, v in luft_values.items() if k.startswith("P")}
+        requests_to_make.append(("1", {
+            "software_version": "northclff_enviro_monitor " + monitor_version,
+            "sensordatavalues": [{"value_type": k, "value": v} for k, v in pm_values.items()]
+        }, "PM"))
 
     if disable_luftdaten_sensor_upload != 'Climate':
-        temp_values = dict(i for i in luft_values.items() if not i[0].startswith("P"))
-        climate_send_attempt = True
-        try:
-            resp_2 = requests.post("https://api.luftdaten.info/v1/push-sensor-data/",
-                     json={
-                         "software_version": "northclff_enviro_monitor " + monitor_version,
-                         "sensordatavalues": [{"value_type": key, "value": val} for
-                                              key, val in temp_values.items()]
-                     },
-                     headers={
-                         "X-PIN":   "11",
-                         "X-Sensor": id,
-                         "Content-Type": "application/json",
-                         "cache-control": "no-cache"
-                     },
-                    timeout=5
-            )
-        except requests.exceptions.ConnectionError as e:
-            resp_2_exception = True
-            print('Luftdaten Climate Connection Error', e)
-        except requests.exceptions.Timeout as e:
-            resp_2_exception = True
-            print('Luftdaten Climate Timeout Error', e)
-        except requests.exceptions.RequestException as e:
-            resp_2_exception = True
-            print('Luftdaten Climate Request Error', e)
+        temp_values = {k: v for k, v in luft_values.items() if not k.startswith("P")}
+        requests_to_make.append(("11", {
+            "software_version": "northclff_enviro_monitor " + monitor_version,
+            "sensordatavalues": [{"value_type": k, "value": v} for k, v in temp_values.items()]
+        }, "Climate"))
 
-    if enable_noise and enable_luftdaten_noise and luft_noise_values != []:
-        noise_values = [{"value_type": "noise_LAeq", "value": "{:.2f}".format(sum(luft_noise_values)/len(luft_noise_values))},
-                         {"value_type": "noise_LA_min", "value": "{:.2f}".format(min(luft_noise_values))},
-                          {"value_type": "noise_LA_max", "value": "{:.2f}".format(max(luft_noise_values))}]
+    if enable_noise and enable_luftdaten_noise and luft_noise_values:
+        noise_values = [
+            {"value_type": "noise_LAeq", "value": "{:.2f}".format(sum(luft_noise_values) / len(luft_noise_values))},
+            {"value_type": "noise_LA_min", "value": "{:.2f}".format(min(luft_noise_values))},
+            {"value_type": "noise_LA_max", "value": "{:.2f}".format(max(luft_noise_values))}
+        ]
         print("Sending Luftdaten Noise Data", noise_values)
-        noise_send_attempt = True
-        try:
-            resp_3 = requests.post("https://api.luftdaten.info/v1/push-sensor-data/",
-                     json={
-                         "software_version": "northclff_enviro_monitor " + monitor_version,
-                         "sensordatavalues": noise_values
-                     },
-                     headers={
-                         "X-PIN":   "15",
-                         "X-Sensor": id,
-                         "Content-Type": "application/json",
-                         "cache-control": "no-cache"
-                     },
-                    timeout=5
-            )
-        except requests.exceptions.ConnectionError as e:
-            resp_3_exception = True
-            print('Luftdaten Noise Connection Error', e)
-        except requests.exceptions.Timeout as e:
-            resp_3_exception = True
-            print('Luftdaten Noise Timeout Error', e)
-        except requests.exceptions.RequestException as e:
-            resp_3_exception = True
-            print('Luftdaten Noise Request Error', e)
-        #print(resp_3)
-            
-    if not (resp_1_exception or resp_2_exception or resp_3_exception):
-        if pm_send_attempt:
-            if not resp_1.ok:
-                all_responses_ok = False
-        if climate_send_attempt:
-            if not resp_2.ok:
-                all_responses_ok = False
-        if noise_send_attempt:
-            if not resp_3.ok:
-                all_responses_ok = False
-    else:
-        all_responses_ok = False
-    return all_responses_ok
+        requests_to_make.append(("15", {
+            "software_version": "northclff_enviro_monitor " + monitor_version,
+            "sensordatavalues": noise_values
+        }, "Noise"))
+
+    if not requests_to_make:
+        return True
+
+    async def _run():
+        async with httpx.AsyncClient(timeout=5) as client:
+            results = await asyncio.gather(*[
+                _async_luft_post(client, pin, id, payload, label)
+                for pin, payload, label in requests_to_make
+            ])
+        return all(results)
+
+    return asyncio.run(_run())
     
 def on_connect(client, userdata, flags, rc):
     es.print_update('Northcliff Environment Monitor Connected with result code ' + str(rc))
@@ -1429,9 +1438,6 @@ def update_aio(mqtt_values, forecast, aio_format, aio_forecast_text_format,
                aio_air_quality_level_format, aio_air_quality_text_format, own_data, icon_air_quality_levels,
                aio_package, gas_sensors_warm, air_quality_data, air_quality_data_no_gas,
                aio_noise_values, aio_version_text_format, version_text):
-    aio_resp = False # Set to True when there is at least one successful aio feed response
-    aio_json = {}
-    aio_path = '/feeds/'
     if gas_sensors_warm and (aio_package == "Premium" or aio_package == "Premium Plus" or aio_package == "Premium Noise" or aio_package == "Premium Plus Noise"):
         print("Sending", aio_package, "feeds to Adafruit IO with Gas Data")
     elif gas_sensors_warm == False and (aio_package == "Premium" or aio_package == "Premium Plus" or aio_package == "Premium Noise" or aio_package == "Premium Plus Noise"):
@@ -1444,35 +1450,30 @@ def update_aio(mqtt_values, forecast, aio_format, aio_forecast_text_format,
     combined_air_quality_level = max_aqi[1]
     combined_air_quality_text = icon_air_quality_levels[combined_air_quality_level] + ": " +\
                                 combined_air_quality_level_factor
-    #print('Sending Air Quality Level Feed')
-    aio_json['value'] = combined_air_quality_level
-    feed_resp = send_data_to_aio(aio_air_quality_level_format, combined_air_quality_level) # Used by all aio packages
-    if feed_resp:
-        aio_resp = True
-    if (aio_package == 'Premium Plus' or aio_package == 'Premium' or aio_package == 'Basic Air' or aio_package == "Premium Noise" or aio_package == "Premium Plus Noise"):
-        #print('Sending Air Quality Text Feed')
-        feed_resp = send_data_to_aio(aio_air_quality_text_format, combined_air_quality_text)
-        if feed_resp:
-            aio_resp = True
+
+    # Collect all (feed_key, data) pairs to send concurrently
+    feeds_to_send = [(aio_air_quality_level_format, combined_air_quality_level)]  # Used by all aio packages
+
+    if (aio_package == 'Premium Plus' or aio_package == 'Premium' or aio_package == 'Basic Air' or
+            aio_package == "Premium Noise" or aio_package == "Premium Plus Noise"):
+        feeds_to_send.append((aio_air_quality_text_format, combined_air_quality_text))
+
     if not enable_indoor_outdoor_functionality or enable_indoor_outdoor_functionality and\
             indoor_outdoor_function == "Outdoor" or enable_indoor_outdoor_functionality and\
             indoor_outdoor_function == "Indoor" and outdoor_source_type != "Enviro":
         # If indoor_outdoor_functionality is enabled, only send an updated weather forecast from the outdoor unit
         # unless the outdoor source type in not an Enviro Monitor
         aio_forecast_text = forecast.replace("\n", " ")
-        if (aio_package == 'Premium' or aio_package == 'Premium Plus' or aio_package == "Premium Noise" or aio_package == "Premium Plus Noise"):
-            #print('Sending Weather Forecast Text Feed')
-            feed_resp = send_data_to_aio(aio_forecast_text_format, aio_forecast_text)
-            if feed_resp:
-                aio_resp = True
-    if (aio_package == 'Premium' or aio_package == 'Premium Plus' or aio_package == "Premium Noise" or aio_package == "Premium Plus Noise"):
-        #print('Sending Version Text Feed')
-        feed_resp = send_data_to_aio(aio_version_text_format, version_text)
-        if feed_resp:
-            aio_resp = True
-    # Send other feeds
-    for feed in aio_format: # aio_format varies, based on the relevant aio_package
-        if aio_format[feed][1]: # Send the first value of the list if sending humidity or barometer data
+        if (aio_package == 'Premium' or aio_package == 'Premium Plus' or aio_package == "Premium Noise" or
+                aio_package == "Premium Plus Noise"):
+            feeds_to_send.append((aio_forecast_text_format, aio_forecast_text))
+
+    if (aio_package == 'Premium' or aio_package == 'Premium Plus' or aio_package == "Premium Noise" or
+            aio_package == "Premium Plus Noise"):
+        feeds_to_send.append((aio_version_text_format, version_text))
+
+    for feed in aio_format:  # aio_format varies, based on the relevant aio_package
+        if aio_format[feed][1]:  # Send the first value of the list if sending humidity or barometer data
             if (feed == "Hum" or
                 feed == "Bar" and not enable_indoor_outdoor_functionality or
                 feed == "Bar" and enable_indoor_outdoor_functionality and indoor_outdoor_function == "Outdoor" or
@@ -1480,104 +1481,52 @@ def update_aio(mqtt_values, forecast, aio_format, aio_forecast_text_format,
                 outdoor_source_type != "Enviro"):
                 # If indoor_outdoor_functionality is enabled, only send outdoor barometer feed unless
                 # the outdoor source type in not an Enviro Monitor
-                #print('Sending', feed, 'Feed')
-                feed_resp = send_data_to_aio(aio_format[feed][0], mqtt_values[feed][0])
-                if feed_resp:
-                    aio_resp = True
+                feeds_to_send.append((aio_format[feed][0], mqtt_values[feed][0]))
         elif feed == "Max Noise":
-            aio_noise_max = round(max(aio_noise_values), 1)
-            #print('Sending', feed, 'Feed')
-            feed_resp = send_data_to_aio(aio_format[feed][0], aio_noise_max)
-            if feed_resp:
-                aio_resp = True
+            feeds_to_send.append((aio_format[feed][0], round(max(aio_noise_values), 1)))
         elif feed == "Min Noise":
-            aio_noise_min = round(min(aio_noise_values), 1)
-            #print('Sending', feed, 'Feed')
-            feed_resp = send_data_to_aio(aio_format[feed][0], aio_noise_min)
-            if feed_resp:
-                aio_resp = True
+            feeds_to_send.append((aio_format[feed][0], round(min(aio_noise_values), 1)))
         elif feed == "Mean Noise":
-            aio_noise_mean = round(sum(aio_noise_values)/len(aio_noise_values), 1)
-            #print('Sending', feed, 'Feed')
-            feed_resp = send_data_to_aio(aio_format[feed][0], aio_noise_mean)
-            if feed_resp:
-                aio_resp = True       
-        else: # Send the value if sending data other than noise, humidity or barometer
+            feeds_to_send.append((aio_format[feed][0], round(sum(aio_noise_values) / len(aio_noise_values), 1)))
+        else:  # Send the value if sending data other than noise, humidity or barometer
             # Only send gas data if the gas sensors are warm and calibrated
             if (feed != "Red" and feed != "Oxi" and feed != "NH3") or mqtt_values['Gas Calibrated']:
-                #print('Sending', feed, 'Feed')
-                feed_resp = send_data_to_aio(aio_format[feed][0], mqtt_values[feed])
-                if feed_resp:
-                    aio_resp = True
-    return aio_resp
+                feeds_to_send.append((aio_format[feed][0], mqtt_values[feed]))
+
+    async def _run():
+        async with httpx.AsyncClient(timeout=5) as client:
+            results = await asyncio.gather(*[
+                _async_aio_post(client, key, data) for key, data in feeds_to_send
+            ])
+        return any(results)
+
+    return asyncio.run(_run())
 
 
 def capture_external_outdoor_data(outdoor_source_type, outdoor_source_id, outdoor_aio_readings):
-    external_outdoor_data = {}
-    if outdoor_source_type == "Adafruit IO":
-        for aio_feed in outdoor_aio_readings:
-            aio_error = False
-            url = 'https://io.adafruit.com/api/v2/{}/feeds/{}-outdoor{}/data/last'.format(
-                outdoor_source_id["User Name"], outdoor_source_id["Household Name"], outdoor_aio_readings[aio_feed])
-            #print (url)
-            try:
-                outdoor_aio_data = external_outdoor_data_session.get(url, headers={'X-AIO-Key':
-                                                                                       outdoor_source_id["Key"]},
-                                                                     timeout=5).json()
-                #print(outdoor_aio_data)
-            except requests.exceptions.ConnectionError as outdoor_aio_comms_error:
-                aio_error = True
-                print('Outdoor aio Connection Error', outdoor_aio_comms_error)
-            except requests.exceptions.Timeout as outdoor_aio_comms_error:
-                aio_error = True
-                print('Outdoor aio Timeout Error', outdoor_aio_comms_error)
-            except requests.exceptions.RequestException as outdoor_aio_comms_error:
-                aio_error = True
-                print('Outdoor aio Request Error', outdoor_aio_comms_error)
-            except ValueError as outdoor_aio_comms_error:
-                aio_error = True
-                print('Outdoor aio Value Error', outdoor_aio_comms_error)
-            if not aio_error:
-                if "value" in outdoor_aio_data:
-                    external_outdoor_data[aio_feed] = float(outdoor_aio_data["value"])
-    elif outdoor_source_type == 'Luftdaten':
-        urls = {"Climate": 'http://api.luftdaten.info/v1/sensor/{}/'.format(outdoor_source_id["Climate"]),
-                "PM": 'http://api.luftdaten.info/v1/sensor/{}/'.format(outdoor_source_id["PM"])}
-        for url in urls:
-            luft_error = False
-            try:
-                outdoor_luft_data = external_outdoor_data_session.get(urls[url], timeout=5).json()
-                #print(outdoor_luft_data)
-            except requests.exceptions.ConnectionError as outdoor_comms_error:
-                luft_error = True
-                print('Outdoor Luftdaten Connection Error', outdoor_comms_error)
-            except requests.exceptions.Timeout as outdoor_comms_error:
-                luft_error = True
-                print('Outdoor Luftdaten Timeout Error', outdoor_comms_error)
-            except requests.exceptions.RequestException as outdoor_comms_error:
-                luft_error = True
-                print('Outdoor Luftdaten Request Error', outdoor_comms_error)
-            except ValueError as outdoor_comms_error:
-                luft_error = True
-                print('Outdoor Luftdaten Value Error', outdoor_comms_error)
-            if not luft_error:
-                if "sensordatavalues" in outdoor_luft_data[0]:
-                    for i in range(len(outdoor_luft_data[0]["sensordatavalues"])):
-                        if url == "Climate":
-                            if outdoor_luft_data[0]["sensordatavalues"][i]["value_type"] == "temperature":
-                                external_outdoor_data["Temp"] = float(outdoor_luft_data[0]
-                                                                      ["sensordatavalues"][i]["value"])
-                            elif outdoor_luft_data[0]["sensordatavalues"][i]["value_type"] == "humidity":
-                                external_outdoor_data["Hum"] = float(outdoor_luft_data[0]
-                                                                     ["sensordatavalues"][i]["value"])
-                        elif url == "PM":
-                            if outdoor_luft_data[0]["sensordatavalues"][i]["value_type"] == "P2":
-                                external_outdoor_data["P2.5"] = float(outdoor_luft_data[0]
-                                                                      ["sensordatavalues"][i]["value"])
-                            elif outdoor_luft_data[0]["sensordatavalues"][i]["value_type"] == "P1":
-                                external_outdoor_data["P10"] = float(outdoor_luft_data[0]
-                                                                     ["sensordatavalues"][i]["value"])
-    return external_outdoor_data
+    async def _run():
+        external_outdoor_data = {}
+        async with httpx.AsyncClient(timeout=5) as client:
+            if outdoor_source_type == "Adafruit IO":
+                results = await asyncio.gather(*[
+                    _async_aio_outdoor_get(client, feed, outdoor_source_id, outdoor_aio_readings[feed])
+                    for feed in outdoor_aio_readings
+                ])
+                for result in results:
+                    external_outdoor_data.update(result)
+            elif outdoor_source_type == 'Luftdaten':
+                url_map = {
+                    "Climate": 'http://api.luftdaten.info/v1/sensor/{}/'.format(outdoor_source_id["Climate"]),
+                    "PM": 'http://api.luftdaten.info/v1/sensor/{}/'.format(outdoor_source_id["PM"])
+                }
+                results = await asyncio.gather(*[
+                    _async_luft_outdoor_get(client, url_type, url) for url_type, url in url_map.items()
+                ])
+                for result in results:
+                    external_outdoor_data.update(result)
+        return external_outdoor_data
+
+    return asyncio.run(_run())
         
 def process_noise_frames(captured_recording, frames, time, status):
     global recording
@@ -1901,7 +1850,10 @@ logging.info("Wi-Fi: {}\n".format("connected" if check_wifi() else "disconnected
 if enable_send_data_to_homemanager or enable_receive_data_from_homemanager or (enable_indoor_outdoor_functionality and
         outdoor_source_type == 'Enviro'):
     es = ExternalSensors()
-    client = mqtt.Client(mqtt_client_name)
+    try:
+        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, mqtt_client_name)
+    except AttributeError:
+        client = mqtt.Client(mqtt_client_name)
     client.on_connect = on_connect
     client.on_message = on_message
     if mqtt_username and mqtt_password:
@@ -2058,10 +2010,9 @@ domoticz_hum_map = {"good": "1", "dry": "2", "wet": "3"}
 mqtt_values["Hum"] = [gas_calib_hum, domoticz_hum_map["good"]]
 path = os.path.dirname(os.path.realpath(__file__))
 
-# Set up outdoor aio readings dictionary and requests session
+# Set up outdoor aio readings dictionary
 outdoor_aio_readings = {"Temp": "-temperature", "Hum": "-humidity", "Dew": "-dewpoint", "P1": "-pm1", "P10": "-pm10", "P2.5": "-pm2-dot-5",
                         "Oxi": "-oxidising", "Red": "-reducing", "NH3": "-ammonia"}
-external_outdoor_data_session = requests.Session()
 
 if enable_eco2_tvoc: # Set up SGP30 if it's enabled
     eco2_tvoc_baseline = [] # Initialise tvoc_co2_baseline format: get - [eco2 value, tvoc value, time set] set
