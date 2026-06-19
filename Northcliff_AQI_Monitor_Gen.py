@@ -35,7 +35,7 @@ from subprocess import check_output
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import logging
 
-monitor_version = 8.0 - Gen"
+monitor_version = "8.1 - Gen"
 
 logging.basicConfig(
     format='%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s',
