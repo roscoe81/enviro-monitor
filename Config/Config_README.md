@@ -81,4 +81,4 @@ The config.json file is used to set the Enviro Monitor’s configuration. It has
 
 "custom_locations": Adds cities that are required by “city_name” and are missing from the Astral module’s database. Format is a list of strings with each string structured as:  "city_name, country, country_time_zone, latitude, longitude"
 
-"serial_port": Allows the serial port of the particle sensor to be specified. Typically set to "/dev/ttyAMA0" or "/dev/ttyS0". If unsure, it can be completely omitted (including the "serial_port" key) and the particle sensor library will use its default serial port settings.
+"serial_port": Allows the serial port of the particle sensor to be specified. Typically set to "/dev/ttyAMA0" for older model Raspberry Pis or "/dev/ttyS0" for newer models. It can be completely omitted (including the "serial_port" key) and the particle sensor library will use its default serial port setting ("/dev/ttyAMA0").
