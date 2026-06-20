@@ -1,6 +1,6 @@
 ﻿# enviro-monitor
 
-## Version 8 Gen now includes dew point measurements but the User Guide has not yet been updated to include the new displays
+## The User Guide refers to setting up wifi with BerryLan. That's only required if the Enviro Monitor is being set up without having access to the Raspberry Pi's standard wifi setup. Ignore any reference to BerryLan if you're able to use the Raspberry Pi's standard wifi setup.
 
 This project uses a Raspberry Pi Zero W, a Pimoroni Enviro+ and a Plantower air quality sensor to monitor, display and report on air particles, gases, temperature, humidity, air pressure, light levels and noise levels. There is also the option to monitor eCO2 and TVOC levels by adding an [SGP30 sensor](https://shop.pimoroni.com/products/sgp30-air-quality-sensor-breakout). The code is based on many of the Python [examples and libraries](https://github.com/pimoroni/enviroplus-python) [published](https://github.com/pimoroni/sgp30-python) by Pimoroni, with a range of modifications and enhancements.
 
