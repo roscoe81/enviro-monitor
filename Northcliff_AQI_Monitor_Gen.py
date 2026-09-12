@@ -35,7 +35,7 @@ from subprocess import check_output
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import logging
 
-monitor_version = "8.1 - Gen"
+monitor_version = "8.2 - Gen"
 
 logging.basicConfig(
     format='%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s',
@@ -2245,6 +2245,16 @@ try:
                                                                         mini_temp, own_disp_values, gas_sensors_warm,
                                                                         gas_calib_temp, gas_calib_hum, gas_calib_bar,
                                                                         altitude, enable_eco2_tvoc)
+                # Combine the individual air quality readings into an overall air quality level based on
+                # own_data thresholds (the worst factor), mirroring the Adafruit IO logic, and add the
+                # human-readable text to mqtt_values so it is sent to Home Manager (e.g. for the TRMNL
+                # display). The text encodes both the level word and the worst factor (e.g. "Poor: P2.5",
+                # or "Great: All" when clear). This is this unit's OWN air quality only (own_data), never
+                # the paired outdoor unit's.
+                combined_max_aqi = max_aqi_level_factor(gas_sensors_warm, air_quality_data,
+                                                        air_quality_data_no_gas, own_data)
+                mqtt_values["Combined AQI Text"] = icon_air_quality_levels[combined_max_aqi[1]] + ": " +\
+                                                   combined_max_aqi[0]
                 first_climate_reading_done = True
                 print('Luftdaten Values', luft_values)
                 print('mqtt Values', mqtt_values)
